@@ -1,0 +1,72 @@
+## .NET / C# gitignore
+
+# Build output
+bin/
+obj/
+publish/
+out/
+
+# .NET project user files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opencover.xml
+
+# Visual Studio
+.vs/
+*.rsuser
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# Packages
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# MSTest
+TestResults/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+NuGet.Config
+
+# dotnet CLI
+project.lock.json
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ─── SECURITY CRITICAL ────────────────────────────────────────
+# NEVER commit real secrets. Use Render Environment Variables.
+# appsettings.json is committed with PLACEHOLDER values only.
+# appsettings.Production.json is gitignored for safety.
+appsettings.Production.json
+appsettings.*.local.json
+secrets.json
+.env
+.env.*
+
+# Docker
+.dockerignore

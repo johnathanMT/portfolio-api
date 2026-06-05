@@ -1,0 +1,62 @@
+# render.yaml — Render Blueprint for PortfolioApi
+# Commit this file to your repo root.
+# In Render dashboard: New → Blueprint → point to this repo.
+# Render will auto-create the service with this exact config.
+
+services:
+  - type: web
+    name: portfolio-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free                    # Upgrade to "starter" for always-on
+
+    # Render sets PORT automatically — our Dockerfile reads it
+    healthCheckPath: /health
+
+    envVars:
+      # ── Injected by Render (set these in the dashboard) ──────
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+
+      - key: ConnectionStrings__DefaultConnection
+        sync: false               # "sync: false" = secret, set in dashboard
+
+      - key: Jwt__Key
+        sync: false
+
+      - key: Jwt__Issuer
+        value: PortfolioApi
+
+      - key: Jwt__Audience
+        value: PortfolioApiUsers
+
+      - key: Jwt__ExpirationHours
+        value: "24"
+
+      - key: AdminSecret
+        sync: false               # Your personal admin registration secret
+
+      - key: Cloudinary__CloudName
+        sync: false
+
+      - key: Cloudinary__ApiKey
+        sync: false
+
+      - key: Cloudinary__ApiSecret
+        sync: false
+
+      - key: Cors__AllowedOrigins__0
+        value: https://johnathanmt.github.io
+
+      - key: RateLimit__GeneralPermitLimit
+        value: "100"
+
+      - key: RateLimit__GeneralWindowSeconds
+        value: "60"
+
+      - key: RateLimit__AuthPermitLimit
+        value: "10"
+
+      - key: RateLimit__AuthWindowSeconds
+        value: "900"
