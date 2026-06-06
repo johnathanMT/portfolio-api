@@ -213,11 +213,6 @@ builder.Services.AddSwaggerGen(options =>
     {
         { securityScheme, Array.Empty<string>() }
     });
-
-    // Include XML comments if generated (optional — enable in .csproj)
-    // var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    // var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    // options.IncludeXmlComments(xmlPath);
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -251,14 +246,14 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-// C. Swagger (enabled in all environments for portfolio demo; restrict for real production)
+// C. Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTN Portfolio API v1");
     c.RoutePrefix    = string.Empty; // Swagger at root /
     c.DocumentTitle  = "MTN Portfolio API";
-    c.DefaultModelsExpandDepth(-1); // Hide schemas by default for cleaner UI
+    c.DefaultModelsExpandDepth(-1); 
 });
 
 // D. HTTPS redirection
@@ -286,13 +281,23 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        logger.LogInformation("Applying database migrations...");
-        await db.Database.MigrateAsync();
-        logger.LogInformation("Database migrations applied successfully.");
+        var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+        if (pending.Count > 0)
+        {
+            logger.LogInformation("Applying {Count} pending migration(s): {Names}",
+                pending.Count, string.Join(", ", pending));
+            await db.Database.MigrateAsync();
+            logger.LogInformation("Database migrations applied successfully.");
+        }
+        else
+        {
+            logger.LogWarning("No pending migrations found. If tables are missing, " +
+                "the Migrations folder may not be deployed to Render.");
+        }
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to apply database migrations. Check your connection string.");
+        logger.LogError(ex, "Failed to apply migrations. Check connection string / Aiven IP access.");
         throw;
     }
 }
