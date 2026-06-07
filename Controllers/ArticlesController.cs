@@ -10,7 +10,8 @@ namespace PortfolioApi.Controllers;
 
 /// <summary>
 /// Full CRUD for blog articles and portfolio posts.
-/// Read operations are public; write operations require the Admin role.
+/// Read operations are public. Create requires the Author or Admin role.
+/// Update/Delete require the caller to be the article's author, or an Admin.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -41,11 +42,15 @@ public class ArticlesController : ControllerBase
         [FromQuery] string? tag     = null,
         [FromQuery] string? search  = null)
     {
-        // Non-admins may only see published articles
-        var isAdmin = User.IsInRole("Admin");
-        if (!isAdmin) published = true;
+        // Visibility: Admins can filter by published state; Authors additionally see
+        // their own drafts; anonymous/Guest visitors see only published articles.
+        var isAdmin  = User.IsInRole("Admin");
+        var viewerId = GetCurrentUserId();   // 0 if not authenticated
 
-        var result = await _articleService.GetAllAsync(page, pageSize, published, tag, search);
+        var result = await _articleService.GetAllAsync(
+            page, pageSize, published, tag, search,
+            isAdmin,
+            viewerId == 0 ? null : viewerId);
         return Ok(result);
     }
 
@@ -82,7 +87,7 @@ public class ArticlesController : ControllerBase
     /// <response code="401">Not authenticated.</response>
     /// <response code="403">Admin role required.</response>
     [HttpPost]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Author")]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<ArticleResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -108,7 +113,7 @@ public class ArticlesController : ControllerBase
     /// <response code="200">Article updated.</response>
     /// <response code="404">Article not found.</response>
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Author")]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<ArticleResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -119,11 +124,12 @@ public class ArticlesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == 0) return Unauthorized();
 
-        var result = await _articleService.UpdateAsync(id, dto, userId);
+        var result = await _articleService.UpdateAsync(id, dto, userId, User.IsInRole("Admin"));
         return result.StatusCode switch
         {
             200 => Ok(result),
             404 => NotFound(result),
+            403 => StatusCode(403, result),
             _   => BadRequest(result),
         };
     }
@@ -133,7 +139,7 @@ public class ArticlesController : ControllerBase
     /// <response code="200">Article deleted.</response>
     /// <response code="404">Article not found.</response>
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Author")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -143,11 +149,12 @@ public class ArticlesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == 0) return Unauthorized();
 
-        var result = await _articleService.DeleteAsync(id, userId);
+        var result = await _articleService.DeleteAsync(id, userId, User.IsInRole("Admin"));
         return result.StatusCode switch
         {
             200 => Ok(result),
             404 => NotFound(result),
+            403 => StatusCode(403, result),
             _   => BadRequest(result),
         };
     }

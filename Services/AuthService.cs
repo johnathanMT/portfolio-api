@@ -120,6 +120,7 @@ public class AuthService : IAuthService
 
         return new AuthResponseDto
         {
+            Id        = user.Id,
             Token     = token,
             Username  = user.Username,
             Email     = user.Email,

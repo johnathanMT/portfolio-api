@@ -16,16 +16,32 @@ public class ArticleRepository : IArticleRepository
         int     pageSize,
         bool?   publishedOnly = true,
         string? tag           = null,
-        string? search        = null)
+        string? search        = null,
+        bool    isAdmin       = false,
+        int?    viewerId      = null)
     {
         var query = _db.Articles
                        .Include(a => a.User)
                        .AsNoTracking()
                        .AsQueryable();
 
-        // Filter by published status
-        if (publishedOnly.HasValue)
-            query = query.Where(a => a.IsPublished == publishedOnly.Value);
+        // Visibility rules:
+        //  - Admin: may filter by published state explicitly (true / false / null = all).
+        //  - Author/logged-in: see all published articles PLUS their own drafts.
+        //  - Anonymous / Guest: published articles only.
+        if (isAdmin)
+        {
+            if (publishedOnly.HasValue)
+                query = query.Where(a => a.IsPublished == publishedOnly.Value);
+        }
+        else if (viewerId.HasValue)
+        {
+            query = query.Where(a => a.IsPublished || a.UserId == viewerId.Value);
+        }
+        else
+        {
+            query = query.Where(a => a.IsPublished);
+        }
 
         // Filter by tag (simple contains check; extend with a tags table if needed)
         if (!string.IsNullOrWhiteSpace(tag))

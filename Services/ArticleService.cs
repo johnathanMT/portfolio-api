@@ -27,11 +27,13 @@ public class ArticleService : IArticleService
         int    pageSize  = 10,
         bool?  published = true,
         string? tag      = null,
-        string? search   = null)
+        string? search   = null,
+        bool   isAdmin   = false,
+        int?   viewerId  = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 50); // max 50 per page for safety
 
-        var (items, total) = await _articleRepo.GetAllAsync(page, pageSize, published, tag, search);
+        var (items, total) = await _articleRepo.GetAllAsync(page, pageSize, published, tag, search, isAdmin, viewerId);
 
         var result = new PagedResult<ArticleResponseDto>
         {
@@ -88,11 +90,18 @@ public class ArticleService : IArticleService
     }
 
     // ── UPDATE ───────────────────────────────────────────────
-    public async Task<ApiResponse<ArticleResponseDto>> UpdateAsync(int id, UpdateArticleDto dto, int userId)
+    public async Task<ApiResponse<ArticleResponseDto>> UpdateAsync(int id, UpdateArticleDto dto, int userId, bool isAdmin)
     {
         var article = await _articleRepo.GetByIdAsync(id);
         if (article is null)
             return ApiResponse<ArticleResponseDto>.Fail($"Article {id} not found.", 404);
+
+        // Ownership: only the article's author (or an Admin) may edit it.
+        if (article.UserId != userId && !isAdmin)
+        {
+            _logger.LogWarning("User {UserId} attempted to edit article {Id} owned by {OwnerId}", userId, id, article.UserId);
+            return ApiResponse<ArticleResponseDto>.Fail("You can only edit your own articles.", 403);
+        }
 
         // Apply partial updates (only fields that were supplied)
         if (dto.Title   is not null) article.Title   = Sanitise(dto.Title);
@@ -121,11 +130,18 @@ public class ArticleService : IArticleService
     }
 
     // ── DELETE ───────────────────────────────────────────────
-    public async Task<ApiResponse<object>> DeleteAsync(int id, int userId)
+    public async Task<ApiResponse<object>> DeleteAsync(int id, int userId, bool isAdmin)
     {
         var article = await _articleRepo.GetByIdAsync(id);
         if (article is null)
             return ApiResponse<object>.Fail($"Article {id} not found.", 404);
+
+        // Ownership: only the article's author (or an Admin) may delete it.
+        if (article.UserId != userId && !isAdmin)
+        {
+            _logger.LogWarning("User {UserId} attempted to delete article {Id} owned by {OwnerId}", userId, id, article.UserId);
+            return ApiResponse<object>.Fail("You can only delete your own articles.", 403);
+        }
 
         // Remove image from Cloudinary
         if (!string.IsNullOrEmpty(article.ImagePublicId))

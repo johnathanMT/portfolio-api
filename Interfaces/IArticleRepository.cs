@@ -9,7 +9,9 @@ public interface IArticleRepository
         int    pageSize,
         bool?  publishedOnly = true,
         string? tag          = null,
-        string? search       = null);
+        string? search       = null,
+        bool   isAdmin       = false,
+        int?   viewerId      = null);
 
     Task<Article?> GetByIdAsync(int id);
     Task<Article>  CreateAsync(Article article);
