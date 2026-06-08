@@ -19,8 +19,14 @@ namespace PortfolioApi.Data
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
             var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-            // Pin the MySQL version so design-time tooling (dotnet ef) does NOT
-            // open a live DB connection. Migrations only need the model, not the server.
+            // At design time (dotnet ef) we never connect — the version is pinned and
+            // migrations only need the model. If appsettings.json holds placeholders
+            // (e.g. "YOUR_PORT") the real connection string isn't available here, so
+            // fall back to a syntactically valid dummy just so the string parses.
+            if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("YOUR_"))
+                connectionString = "Server=localhost;Port=3306;Database=design_time;User=root;Password=root;";
+
+            // Pin the MySQL version so the tooling does NOT open a live DB connection.
             optionsBuilder.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 35)));
 
             return new AppDbContext(optionsBuilder.Options);
