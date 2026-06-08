@@ -60,23 +60,40 @@ public class ArticleService : IArticleService
             return ApiResponse<ArticleResponseDto>.Fail($"Article {id} not found.", 404);
 
         var dto = MapToDto(article);
-        dto.LikeCount = await _interactionRepo.CountLikesAsync(id);
-        dto.Reactions = await _interactionRepo.GetReactionCountsAsync(id);
+        // Interaction counts are non-critical: never let them break article reads.
+        try
+        {
+            dto.LikeCount = await _interactionRepo.CountLikesAsync(id);
+            dto.Reactions = await _interactionRepo.GetReactionCountsAsync(id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load interaction counts for article {Id} (tables may be missing).", id);
+        }
 
         return ApiResponse<ArticleResponseDto>.Ok(dto);
     }
 
     // Batch-fill like/reaction counts for a page of articles in two queries.
+    // Wrapped defensively so a missing/locked interactions table can never break
+    // the article list — counts simply fall back to zero.
     private async Task EnrichWithInteractionsAsync(List<ArticleResponseDto> dtos)
     {
         if (dtos.Count == 0) return;
-        var ids = dtos.Select(d => d.Id).ToList();
-        var likeCounts = await _interactionRepo.GetLikeCountsAsync(ids);
-        var reactionCounts = await _interactionRepo.GetReactionCountsAsync(ids);
-        foreach (var d in dtos)
+        try
         {
-            d.LikeCount = likeCounts.TryGetValue(d.Id, out var lc) ? lc : 0;
-            d.Reactions = reactionCounts.TryGetValue(d.Id, out var rc) ? rc : new();
+            var ids = dtos.Select(d => d.Id).ToList();
+            var likeCounts = await _interactionRepo.GetLikeCountsAsync(ids);
+            var reactionCounts = await _interactionRepo.GetReactionCountsAsync(ids);
+            foreach (var d in dtos)
+            {
+                d.LikeCount = likeCounts.TryGetValue(d.Id, out var lc) ? lc : 0;
+                d.Reactions = reactionCounts.TryGetValue(d.Id, out var rc) ? rc : new();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load interaction counts (tables may be missing); returning zero counts.");
         }
     }
 
