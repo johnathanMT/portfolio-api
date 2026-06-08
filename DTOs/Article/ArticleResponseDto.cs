@@ -16,6 +16,10 @@ public class ArticleResponseDto
     public DateTime  CreatedAt     { get; set; }
     public DateTime  UpdatedAt     { get; set; }
 
+    /// <summary>Anonymous interaction counts (populated on read).</summary>
+    public int                     LikeCount { get; set; }
+    public Dictionary<string, int> Reactions { get; set; } = new();
+
     /// <summary>Minimal author info — does NOT expose password hash or email.</summary>
     public ArticleAuthorDto? AuthorInfo { get; set; }
 }

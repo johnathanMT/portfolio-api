@@ -9,16 +9,19 @@ public class ArticleService : IArticleService
 {
     private readonly IArticleRepository _articleRepo;
     private readonly IImageService      _imageService;
+    private readonly IInteractionRepository _interactionRepo;
     private readonly ILogger<ArticleService> _logger;
 
     public ArticleService(
         IArticleRepository       articleRepo,
         IImageService            imageService,
+        IInteractionRepository   interactionRepo,
         ILogger<ArticleService>  logger)
     {
-        _articleRepo  = articleRepo;
-        _imageService = imageService;
-        _logger       = logger;
+        _articleRepo     = articleRepo;
+        _imageService    = imageService;
+        _interactionRepo = interactionRepo;
+        _logger          = logger;
     }
 
     // ── GET ALL (paginated, searchable) ─────────────────────
@@ -35,9 +38,12 @@ public class ArticleService : IArticleService
 
         var (items, total) = await _articleRepo.GetAllAsync(page, pageSize, published, tag, search, isAdmin, viewerId);
 
+        var dtos = items.Select(MapToDto).ToList();
+        await EnrichWithInteractionsAsync(dtos);
+
         var result = new PagedResult<ArticleResponseDto>
         {
-            Items      = items.Select(MapToDto),
+            Items      = dtos,
             TotalCount = total,
             Page       = page,
             PageSize   = pageSize,
@@ -53,7 +59,25 @@ public class ArticleService : IArticleService
         if (article is null)
             return ApiResponse<ArticleResponseDto>.Fail($"Article {id} not found.", 404);
 
-        return ApiResponse<ArticleResponseDto>.Ok(MapToDto(article));
+        var dto = MapToDto(article);
+        dto.LikeCount = await _interactionRepo.CountLikesAsync(id);
+        dto.Reactions = await _interactionRepo.GetReactionCountsAsync(id);
+
+        return ApiResponse<ArticleResponseDto>.Ok(dto);
+    }
+
+    // Batch-fill like/reaction counts for a page of articles in two queries.
+    private async Task EnrichWithInteractionsAsync(List<ArticleResponseDto> dtos)
+    {
+        if (dtos.Count == 0) return;
+        var ids = dtos.Select(d => d.Id).ToList();
+        var likeCounts = await _interactionRepo.GetLikeCountsAsync(ids);
+        var reactionCounts = await _interactionRepo.GetReactionCountsAsync(ids);
+        foreach (var d in dtos)
+        {
+            d.LikeCount = likeCounts.TryGetValue(d.Id, out var lc) ? lc : 0;
+            d.Reactions = reactionCounts.TryGetValue(d.Id, out var rc) ? rc : new();
+        }
     }
 
     // ── CREATE ───────────────────────────────────────────────

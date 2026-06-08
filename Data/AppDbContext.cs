@@ -7,8 +7,10 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public DbSet<User>    Users    { get; set; }
-    public DbSet<Article> Articles { get; set; }
+    public DbSet<User>            Users            { get; set; }
+    public DbSet<Article>         Articles         { get; set; }
+    public DbSet<ArticleLike>     ArticleLikes     { get; set; }
+    public DbSet<ArticleReaction> ArticleReactions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +48,28 @@ public class AppDbContext : DbContext
             // Index for fast queries by publication date
             entity.HasIndex(a => a.PublishedDate);
             entity.HasIndex(a => a.IsPublished);
+        });
+
+        // ── Anonymous interactions ─────────────────────────────
+        modelBuilder.Entity<ArticleLike>(entity =>
+        {
+            // One like per visitor per article (enables toggle/unlike)
+            entity.HasIndex(l => new { l.ArticleId, l.VisitorHash }).IsUnique();
+            entity.HasOne(l => l.Article)
+                  .WithMany()
+                  .HasForeignKey(l => l.ArticleId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArticleReaction>(entity =>
+        {
+            // One of each reaction type per visitor per article
+            entity.HasIndex(r => new { r.ArticleId, r.VisitorHash, r.Reaction }).IsUnique();
+            entity.HasIndex(r => r.ArticleId);
+            entity.HasOne(r => r.Article)
+                  .WithMany()
+                  .HasForeignKey(r => r.ArticleId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

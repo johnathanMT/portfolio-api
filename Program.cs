@@ -46,11 +46,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ─────────────────────────────────────────────────────────────
 // 2. DEPENDENCY INJECTION — Repositories & Services
 // ─────────────────────────────────────────────────────────────
-builder.Services.AddScoped<IUserRepository,    UserRepository>();
-builder.Services.AddScoped<IArticleRepository, ArticleRepository>();
-builder.Services.AddScoped<IAuthService,       AuthService>();
-builder.Services.AddScoped<IArticleService,    ArticleService>();
-builder.Services.AddSingleton<IImageService,   CloudinaryImageService>();
+builder.Services.AddScoped<IUserRepository,        UserRepository>();
+builder.Services.AddScoped<IArticleRepository,     ArticleRepository>();
+builder.Services.AddScoped<IInteractionRepository, InteractionRepository>();
+builder.Services.AddScoped<IAuthService,           AuthService>();
+builder.Services.AddScoped<IArticleService,        ArticleService>();
+builder.Services.AddScoped<IInteractionService,    InteractionService>();
+builder.Services.AddSingleton<IImageService,       CloudinaryImageService>();
 
 // ─────────────────────────────────────────────────────────────
 // 3. FLUENT VALIDATION
@@ -160,6 +162,15 @@ builder.Services.AddRateLimiter(options =>
     {
         opt.Window             = TimeSpan.FromSeconds(rlSection.GetValue("AuthWindowSeconds", 900));
         opt.PermitLimit        = rlSection.GetValue("AuthPermitLimit", 10);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit         = 0;
+    });
+
+    // Anonymous interactions policy: 30 req / 60 s (like/react spam protection)
+    options.AddFixedWindowLimiter("interactions", opt =>
+    {
+        opt.Window             = TimeSpan.FromSeconds(rlSection.GetValue("InteractionsWindowSeconds", 60));
+        opt.PermitLimit        = rlSection.GetValue("InteractionsPermitLimit", 30);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
         opt.QueueLimit         = 0;
     });
