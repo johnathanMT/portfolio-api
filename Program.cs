@@ -33,7 +33,8 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         connectionString,
-        ServerVersion.AutoDetect(connectionString),
+        // Pinned instead of AutoDetect: no design-time/cold-start DB call needed.
+        new MySqlServerVersion(new Version(8, 0, 35)),
         mySqlOptions =>
         {
             mySqlOptions.EnableRetryOnFailure(

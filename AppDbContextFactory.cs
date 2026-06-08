@@ -19,8 +19,9 @@ namespace PortfolioApi.Data
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
             var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-            // Database ချိတ်ဆက်ခြင်း
-            optionsBuilder.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+            // Pin the MySQL version so design-time tooling (dotnet ef) does NOT
+            // open a live DB connection. Migrations only need the model, not the server.
+            optionsBuilder.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 35)));
 
             return new AppDbContext(optionsBuilder.Options);
         }
