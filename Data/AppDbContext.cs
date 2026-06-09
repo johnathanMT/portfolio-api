@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
 
     public DbSet<User>            Users            { get; set; }
     public DbSet<Article>         Articles         { get; set; }
+    public DbSet<ArticleImage>    ArticleImages    { get; set; }
     public DbSet<ArticleLike>     ArticleLikes     { get; set; }
     public DbSet<ArticleReaction> ArticleReactions { get; set; }
 
@@ -48,6 +49,17 @@ public class AppDbContext : DbContext
             // Index for fast queries by publication date
             entity.HasIndex(a => a.PublishedDate);
             entity.HasIndex(a => a.IsPublished);
+
+            // One Article → many ArticleImages
+            entity.HasMany(a => a.Images)
+                  .WithOne(i => i.Article)
+                  .HasForeignKey(i => i.ArticleId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArticleImage>(entity =>
+        {
+            entity.HasIndex(i => i.ArticleId);
         });
 
         // ── Anonymous interactions ─────────────────────────────

@@ -14,9 +14,15 @@ public class CreateArticleDto
     public string Author { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional image file. Uploaded to Cloudinary; URL stored in the DB.
+    /// Optional primary/hero image file. Uploaded to Cloudinary; URL stored in the DB.
     /// </summary>
     public IFormFile? Image { get; set; }
+
+    /// <summary>
+    /// Optional gallery image URLs (already hosted, e.g. Cloudinary). Stored as
+    /// ArticleImage rows. Send repeated form fields named "ImageUrls".
+    /// </summary>
+    public List<string>? ImageUrls { get; set; }
 
     /// <summary>
     /// Comma-separated tags, e.g. "dotnet,api,tutorial".

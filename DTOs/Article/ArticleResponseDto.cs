@@ -9,7 +9,13 @@ public class ArticleResponseDto
     public string    Title         { get; set; } = string.Empty;
     public string    Content       { get; set; } = string.Empty;
     public string    Author        { get; set; } = string.Empty;
+
+    /// <summary>Primary/hero image (kept for backward compatibility).</summary>
     public string?   ImageUrl      { get; set; }
+
+    /// <summary>All images: primary first, then gallery images in order.</summary>
+    public List<string> ImageUrls   { get; set; } = new();
+
     public string?   Tags          { get; set; }
     public bool      IsPublished   { get; set; }
     public DateTime  PublishedDate { get; set; }

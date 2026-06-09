@@ -22,6 +22,7 @@ public class ArticleRepository : IArticleRepository
     {
         var query = _db.Articles
                        .Include(a => a.User)
+                       .Include(a => a.Images)
                        .AsNoTracking()
                        .AsQueryable();
 
@@ -71,6 +72,7 @@ public class ArticleRepository : IArticleRepository
     public async Task<Article?> GetByIdAsync(int id) =>
         await _db.Articles
                  .Include(a => a.User)
+                 .Include(a => a.Images)
                  .AsNoTracking()
                  .FirstOrDefaultAsync(a => a.Id == id);
 

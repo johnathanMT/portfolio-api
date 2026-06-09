@@ -14,9 +14,14 @@ public class UpdateArticleDto
     public string? Author { get; set; }
 
     /// <summary>
-    /// New image to replace the existing one. Old Cloudinary asset is deleted.
+    /// New primary image to replace the existing one. Old Cloudinary asset is deleted.
     /// </summary>
     public IFormFile? Image { get; set; }
+
+    /// <summary>
+    /// Additional gallery image URLs to append. Send repeated form fields "ImageUrls".
+    /// </summary>
+    public List<string>? ImageUrls { get; set; }
 
     [MaxLength(500)]
     public string? Tags { get; set; }

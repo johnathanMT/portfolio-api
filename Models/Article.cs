@@ -54,4 +54,7 @@ public class Article
 
     // Navigation
     public User? User { get; set; }
+
+    /// <summary>Gallery images (1:N). The primary <see cref="ImageUrl"/> is the hero.</summary>
+    public ICollection<ArticleImage> Images { get; set; } = new List<ArticleImage>();
 }

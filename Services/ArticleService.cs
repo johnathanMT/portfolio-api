@@ -124,6 +124,14 @@ public class ArticleService : IArticleService
             UserId        = userId,
         };
 
+        // Attach gallery images (1:N) if provided
+        if (dto.ImageUrls is not null)
+        {
+            var order = 0;
+            foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
+                article.Images.Add(new ArticleImage { ImageUrl = u.Trim(), SortOrder = order++ });
+        }
+
         await _articleRepo.CreateAsync(article);
         _logger.LogInformation("Article created: {Title} by UserId {UserId}", article.Title, userId);
 
@@ -164,6 +172,14 @@ public class ArticleService : IArticleService
             article.ImagePublicId = publicId;
         }
 
+        // Append any new gallery image URLs
+        if (dto.ImageUrls is not null)
+        {
+            var order = article.Images.Count;
+            foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
+                article.Images.Add(new ArticleImage { ImageUrl = u.Trim(), SortOrder = order++ });
+        }
+
         await _articleRepo.UpdateAsync(article);
         _logger.LogInformation("Article updated: {Id} by UserId {UserId}", id, userId);
 
@@ -202,6 +218,7 @@ public class ArticleService : IArticleService
         Content       = a.Content,
         Author        = a.Author,
         ImageUrl      = a.ImageUrl,
+        ImageUrls     = BuildImageUrls(a),
         Tags          = a.Tags,
         IsPublished   = a.IsPublished,
         PublishedDate = a.PublishedDate,
@@ -211,6 +228,16 @@ public class ArticleService : IArticleService
                         ? new ArticleAuthorDto { Id = a.User.Id, Username = a.User.Username }
                         : null,
     };
+
+    /// <summary>Primary image (if any) first, then gallery images in order.</summary>
+    private static List<string> BuildImageUrls(Article a)
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrWhiteSpace(a.ImageUrl)) list.Add(a.ImageUrl);
+        if (a.Images is not null)
+            list.AddRange(a.Images.OrderBy(i => i.SortOrder).Select(i => i.ImageUrl));
+        return list;
+    }
 
     /// <summary>
     /// Lightweight XSS protection: remove angle-bracket HTML tags.
