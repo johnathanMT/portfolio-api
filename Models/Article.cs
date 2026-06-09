@@ -37,6 +37,14 @@ public class Article
     [MaxLength(300)]
     public string? ImagePublicId { get; set; }
 
+    /// <summary>Secure URL of an optional article video (Cloudinary).</summary>
+    [MaxLength(500)]
+    public string? VideoUrl { get; set; }
+
+    /// <summary>Cloudinary Public ID for the video — needed to replace/delete it.</summary>
+    [MaxLength(300)]
+    public string? VideoPublicId { get; set; }
+
     /// <summary>
     /// Comma-separated tags, e.g. "dotnet,csharp,api".
     /// </summary>

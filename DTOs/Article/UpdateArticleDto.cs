@@ -18,10 +18,14 @@ public class UpdateArticleDto
     /// </summary>
     public IFormFile? Image { get; set; }
 
-    /// <summary>
-    /// Additional gallery image URLs to append. Send repeated form fields "ImageUrls".
-    /// </summary>
+    /// <summary>Additional gallery image FILES to upload and append.</summary>
+    public List<IFormFile>? GalleryImages { get; set; }
+
+    /// <summary>Additional gallery image URLs to append (already hosted).</summary>
     public List<string>? ImageUrls { get; set; }
+
+    /// <summary>New video file to upload (replaces any existing video).</summary>
+    public IFormFile? Video { get; set; }
 
     [MaxLength(500)]
     public string? Tags { get; set; }

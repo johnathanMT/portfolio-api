@@ -124,12 +124,24 @@ public class ArticleService : IArticleService
             UserId        = userId,
         };
 
-        // Attach gallery images (1:N) if provided
+        // Gallery: uploaded image files first, then any already-hosted URLs
+        var order = 0;
+        if (dto.GalleryImages is not null)
+            foreach (var f in dto.GalleryImages.Where(f => f is { Length: > 0 }))
+            {
+                var (gurl, _) = await _imageService.UploadAsync(f, "portfolio/articles");
+                article.Images.Add(new ArticleImage { ImageUrl = gurl, SortOrder = order++ });
+            }
         if (dto.ImageUrls is not null)
-        {
-            var order = 0;
             foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
                 article.Images.Add(new ArticleImage { ImageUrl = u.Trim(), SortOrder = order++ });
+
+        // Optional video
+        if (dto.Video is not null)
+        {
+            var (vurl, vpid) = await _imageService.UploadVideoAsync(dto.Video);
+            article.VideoUrl = vurl;
+            article.VideoPublicId = vpid;
         }
 
         await _articleRepo.CreateAsync(article);
@@ -172,12 +184,26 @@ public class ArticleService : IArticleService
             article.ImagePublicId = publicId;
         }
 
-        // Append any new gallery image URLs
+        // Append new gallery images (uploaded files first, then URLs)
+        var order = article.Images.Count;
+        if (dto.GalleryImages is not null)
+            foreach (var f in dto.GalleryImages.Where(f => f is { Length: > 0 }))
+            {
+                var (gurl, _) = await _imageService.UploadAsync(f, "portfolio/articles");
+                article.Images.Add(new ArticleImage { ImageUrl = gurl, SortOrder = order++ });
+            }
         if (dto.ImageUrls is not null)
-        {
-            var order = article.Images.Count;
             foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
                 article.Images.Add(new ArticleImage { ImageUrl = u.Trim(), SortOrder = order++ });
+
+        // Replace video if a new one was uploaded
+        if (dto.Video is not null)
+        {
+            if (!string.IsNullOrEmpty(article.VideoPublicId))
+                await _imageService.DeleteVideoAsync(article.VideoPublicId);
+            var (vurl, vpid) = await _imageService.UploadVideoAsync(dto.Video);
+            article.VideoUrl = vurl;
+            article.VideoPublicId = vpid;
         }
 
         await _articleRepo.UpdateAsync(article);
@@ -200,9 +226,11 @@ public class ArticleService : IArticleService
             return ApiResponse<object>.Fail("You can only delete your own articles.", 403);
         }
 
-        // Remove image from Cloudinary
+        // Remove image + video from Cloudinary
         if (!string.IsNullOrEmpty(article.ImagePublicId))
             await _imageService.DeleteAsync(article.ImagePublicId);
+        if (!string.IsNullOrEmpty(article.VideoPublicId))
+            await _imageService.DeleteVideoAsync(article.VideoPublicId);
 
         await _articleRepo.DeleteAsync(id);
         _logger.LogInformation("Article deleted: {Id} by UserId {UserId}", id, userId);
@@ -219,6 +247,7 @@ public class ArticleService : IArticleService
         Author        = a.Author,
         ImageUrl      = a.ImageUrl,
         ImageUrls     = BuildImageUrls(a),
+        VideoUrl      = a.VideoUrl,
         Tags          = a.Tags,
         IsPublished   = a.IsPublished,
         PublishedDate = a.PublishedDate,

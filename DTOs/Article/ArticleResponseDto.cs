@@ -16,6 +16,9 @@ public class ArticleResponseDto
     /// <summary>All images: primary first, then gallery images in order.</summary>
     public List<string> ImageUrls   { get; set; } = new();
 
+    /// <summary>Optional article video (Cloudinary secure URL).</summary>
+    public string?   VideoUrl      { get; set; }
+
     public string?   Tags          { get; set; }
     public bool      IsPublished   { get; set; }
     public DateTime  PublishedDate { get; set; }

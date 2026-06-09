@@ -14,8 +14,18 @@ public interface IImageService
         string    folder = "portfolio");
 
     /// <summary>
+    /// Upload a video file (e.g. .mp4) and return its secure URL and public ID.
+    /// </summary>
+    Task<(string SecureUrl, string PublicId)> UploadVideoAsync(
+        IFormFile file,
+        string    folder = "portfolio/videos");
+
+    /// <summary>
     /// Delete an image from cloud storage by its public ID.
     /// Called automatically when an article image is replaced or deleted.
     /// </summary>
     Task<bool> DeleteAsync(string publicId);
+
+    /// <summary>Delete a video from cloud storage by its public ID.</summary>
+    Task<bool> DeleteVideoAsync(string publicId);
 }

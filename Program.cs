@@ -232,7 +232,13 @@ builder.Services.AddSwaggerGen(options =>
 // ─────────────────────────────────────────────────────────────
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(opt =>
 {
-    opt.MultipartBodyLengthLimit = 10 * 1024 * 1024; // 10 MB max upload
+    opt.MultipartBodyLengthLimit = 120 * 1024 * 1024; // up to 120 MB (covers a ~100 MB video)
+});
+
+// Allow large request bodies through Kestrel for video uploads
+builder.WebHost.ConfigureKestrel(opt =>
+{
+    opt.Limits.MaxRequestBodySize = 120 * 1024 * 1024;
 });
 
 // ─────────────────────────────────────────────────────────────

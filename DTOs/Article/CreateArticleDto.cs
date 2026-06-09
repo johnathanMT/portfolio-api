@@ -19,10 +19,18 @@ public class CreateArticleDto
     public IFormFile? Image { get; set; }
 
     /// <summary>
-    /// Optional gallery image URLs (already hosted, e.g. Cloudinary). Stored as
-    /// ArticleImage rows. Send repeated form fields named "ImageUrls".
+    /// Optional gallery image FILES (multiple). Each is uploaded to Cloudinary
+    /// and stored as an ArticleImage row. Send repeated "GalleryImages" form fields.
+    /// </summary>
+    public List<IFormFile>? GalleryImages { get; set; }
+
+    /// <summary>
+    /// Optional gallery image URLs (already hosted). Also stored as ArticleImage rows.
     /// </summary>
     public List<string>? ImageUrls { get; set; }
+
+    /// <summary>Optional video file (e.g. .mp4). Uploaded to Cloudinary.</summary>
+    public IFormFile? Video { get; set; }
 
     /// <summary>
     /// Comma-separated tags, e.g. "dotnet,api,tutorial".
