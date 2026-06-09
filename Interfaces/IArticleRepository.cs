@@ -18,4 +18,9 @@ public interface IArticleRepository
     Task<Article>  UpdateAsync(Article article);
     Task           DeleteAsync(int id);
     Task<bool>     ExistsAsync(int id);
+
+    // Gallery image management
+    Task<ArticleImage?> GetImageWithArticleAsync(int imageId);
+    Task                DeleteImageAsync(ArticleImage image);
+    Task                ReorderImagesAsync(int articleId, List<int> orderedIds);
 }

@@ -19,6 +19,10 @@ public class ArticleImage
     [Required, MaxLength(500)]
     public string ImageUrl { get; set; } = string.Empty;
 
+    /// <summary>Cloudinary public ID (if uploaded as a file) — used to delete the asset.</summary>
+    [MaxLength(300)]
+    public string? ImagePublicId { get; set; }
+
     /// <summary>Display order within the gallery (ascending).</summary>
     public int SortOrder { get; set; }
 

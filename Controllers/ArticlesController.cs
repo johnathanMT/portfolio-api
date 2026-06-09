@@ -160,6 +160,43 @@ public class ArticlesController : ControllerBase
     }
 
     // ──────────────────────────────────────────────────────────
+    /// <summary>Delete one gallery image. Author (owner) or Admin only.</summary>
+    [HttpDelete("{articleId:int}/images/{imageId:int}")]
+    [Authorize(Roles = "Admin,Author")]
+    public async Task<IActionResult> DeleteImage(int articleId, int imageId)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == 0) return Unauthorized();
+
+        var result = await _articleService.DeleteImageAsync(imageId, userId, User.IsInRole("Admin"));
+        return result.StatusCode switch
+        {
+            200 => Ok(result),
+            404 => NotFound(result),
+            403 => StatusCode(403, result),
+            _   => BadRequest(result),
+        };
+    }
+
+    /// <summary>Reorder an article's gallery images by id. Author (owner) or Admin only.</summary>
+    [HttpPut("{articleId:int}/images/reorder")]
+    [Authorize(Roles = "Admin,Author")]
+    public async Task<IActionResult> ReorderImages(int articleId, [FromBody] ReorderImagesDto dto)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == 0) return Unauthorized();
+
+        var result = await _articleService.ReorderImagesAsync(articleId, dto.ImageIds, userId, User.IsInRole("Admin"));
+        return result.StatusCode switch
+        {
+            200 => Ok(result),
+            404 => NotFound(result),
+            403 => StatusCode(403, result),
+            _   => BadRequest(result),
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
     private int GetCurrentUserId()
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value

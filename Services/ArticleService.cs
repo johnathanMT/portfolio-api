@@ -129,8 +129,8 @@ public class ArticleService : IArticleService
         if (dto.GalleryImages is not null)
             foreach (var f in dto.GalleryImages.Where(f => f is { Length: > 0 }))
             {
-                var (gurl, _) = await _imageService.UploadAsync(f, "portfolio/articles");
-                article.Images.Add(new ArticleImage { ImageUrl = gurl, SortOrder = order++ });
+                var (gurl, gpid) = await _imageService.UploadAsync(f, "portfolio/articles");
+                article.Images.Add(new ArticleImage { ImageUrl = gurl, ImagePublicId = gpid, SortOrder = order++ });
             }
         if (dto.ImageUrls is not null)
             foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
@@ -189,8 +189,8 @@ public class ArticleService : IArticleService
         if (dto.GalleryImages is not null)
             foreach (var f in dto.GalleryImages.Where(f => f is { Length: > 0 }))
             {
-                var (gurl, _) = await _imageService.UploadAsync(f, "portfolio/articles");
-                article.Images.Add(new ArticleImage { ImageUrl = gurl, SortOrder = order++ });
+                var (gurl, gpid) = await _imageService.UploadAsync(f, "portfolio/articles");
+                article.Images.Add(new ArticleImage { ImageUrl = gurl, ImagePublicId = gpid, SortOrder = order++ });
             }
         if (dto.ImageUrls is not null)
             foreach (var u in dto.ImageUrls.Where(x => !string.IsNullOrWhiteSpace(x)))
@@ -247,6 +247,10 @@ public class ArticleService : IArticleService
         Author        = a.Author,
         ImageUrl      = a.ImageUrl,
         ImageUrls     = BuildImageUrls(a),
+        Images        = a.Images is null ? new()
+                        : a.Images.OrderBy(i => i.SortOrder)
+                                  .Select(i => new ArticleImageDto { Id = i.Id, ImageUrl = i.ImageUrl, SortOrder = i.SortOrder })
+                                  .ToList(),
         VideoUrl      = a.VideoUrl,
         Tags          = a.Tags,
         IsPublished   = a.IsPublished,
@@ -259,6 +263,35 @@ public class ArticleService : IArticleService
     };
 
     /// <summary>Primary image (if any) first, then gallery images in order.</summary>
+    public async Task<ApiResponse<object>> DeleteImageAsync(int imageId, int userId, bool isAdmin)
+    {
+        var image = await _articleRepo.GetImageWithArticleAsync(imageId);
+        if (image is null)
+            return ApiResponse<object>.Fail("Image not found.", 404);
+
+        if (image.Article is not null && image.Article.UserId != userId && !isAdmin)
+            return ApiResponse<object>.Fail("You can only manage your own articles.", 403);
+
+        if (!string.IsNullOrEmpty(image.ImagePublicId))
+            await _imageService.DeleteAsync(image.ImagePublicId);
+
+        await _articleRepo.DeleteImageAsync(image);
+        return ApiResponse<object>.Ok(new { id = imageId }, "Image deleted.");
+    }
+
+    public async Task<ApiResponse<object>> ReorderImagesAsync(int articleId, List<int> orderedIds, int userId, bool isAdmin)
+    {
+        var article = await _articleRepo.GetByIdAsync(articleId);
+        if (article is null)
+            return ApiResponse<object>.Fail("Article not found.", 404);
+
+        if (article.UserId != userId && !isAdmin)
+            return ApiResponse<object>.Fail("You can only manage your own articles.", 403);
+
+        await _articleRepo.ReorderImagesAsync(articleId, orderedIds);
+        return ApiResponse<object>.Ok(new { articleId }, "Images reordered.");
+    }
+
     private static List<string> BuildImageUrls(Article a)
     {
         var list = new List<string>();

@@ -13,8 +13,11 @@ public class ArticleResponseDto
     /// <summary>Primary/hero image (kept for backward compatibility).</summary>
     public string?   ImageUrl      { get; set; }
 
-    /// <summary>All images: primary first, then gallery images in order.</summary>
+    /// <summary>All images as plain URLs: primary first, then gallery in order (public consumers).</summary>
     public List<string> ImageUrls   { get; set; } = new();
+
+    /// <summary>Gallery images with ids — for management UIs (delete / reorder).</summary>
+    public List<ArticleImageDto> Images { get; set; } = new();
 
     /// <summary>Optional article video (Cloudinary secure URL).</summary>
     public string?   VideoUrl      { get; set; }
@@ -37,6 +40,20 @@ public class ArticleAuthorDto
 {
     public int    Id       { get; set; }
     public string Username { get; set; } = string.Empty;
+}
+
+/// <summary>A single gallery image with its id (for delete/reorder).</summary>
+public class ArticleImageDto
+{
+    public int    Id        { get; set; }
+    public string ImageUrl  { get; set; } = string.Empty;
+    public int    SortOrder { get; set; }
+}
+
+/// <summary>Body for reordering an article's gallery images.</summary>
+public class ReorderImagesDto
+{
+    public List<int> ImageIds { get; set; } = new();
 }
 
 /// <summary>

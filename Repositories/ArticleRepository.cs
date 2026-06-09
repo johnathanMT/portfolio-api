@@ -103,4 +103,25 @@ public class ArticleRepository : IArticleRepository
 
     public async Task<bool> ExistsAsync(int id) =>
         await _db.Articles.AnyAsync(a => a.Id == id);
+
+    // ── Gallery image management ─────────────────────────────
+    public Task<ArticleImage?> GetImageWithArticleAsync(int imageId) =>
+        _db.ArticleImages.Include(i => i.Article).FirstOrDefaultAsync(i => i.Id == imageId);
+
+    public async Task DeleteImageAsync(ArticleImage image)
+    {
+        _db.ArticleImages.Remove(image);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task ReorderImagesAsync(int articleId, List<int> orderedIds)
+    {
+        var images = await _db.ArticleImages.Where(i => i.ArticleId == articleId).ToListAsync();
+        for (var idx = 0; idx < orderedIds.Count; idx++)
+        {
+            var img = images.FirstOrDefault(i => i.Id == orderedIds[idx]);
+            if (img is not null) img.SortOrder = idx;
+        }
+        await _db.SaveChangesAsync();
+    }
 }

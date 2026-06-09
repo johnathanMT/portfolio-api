@@ -21,4 +21,8 @@ public interface IArticleService
     Task<ApiResponse<ArticleResponseDto>> UpdateAsync(int id, UpdateArticleDto dto, int userId, bool isAdmin);
 
     Task<ApiResponse<object>> DeleteAsync(int id, int userId, bool isAdmin);
+
+    Task<ApiResponse<object>> DeleteImageAsync(int imageId, int userId, bool isAdmin);
+
+    Task<ApiResponse<object>> ReorderImagesAsync(int articleId, List<int> orderedIds, int userId, bool isAdmin);
 }
