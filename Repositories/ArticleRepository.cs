@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using PortfolioApi.Data;
 using PortfolioApi.Interfaces;
 using PortfolioApi.Models;
@@ -8,8 +9,34 @@ namespace PortfolioApi.Repositories;
 public class ArticleRepository : IArticleRepository
 {
     private readonly AppDbContext _db;
+    private readonly ILogger<ArticleRepository> _logger;
 
-    public ArticleRepository(AppDbContext db) => _db = db;
+    public ArticleRepository(AppDbContext db, ILogger<ArticleRepository> logger)
+    {
+        _db     = db;
+        _logger = logger;
+    }
+
+    // Core columns that exist in EVERY version of the schema (pre-dating the
+    // multi-image / video migrations). Used as a graceful fallback so a read can
+    // never 500 just because the ArticleImages table or Video* columns are not
+    // yet present on the deployed database.
+    private static readonly System.Linq.Expressions.Expression<Func<Article, Article>> CoreProjection =
+        a => new Article
+        {
+            Id            = a.Id,
+            Title         = a.Title,
+            Content       = a.Content,
+            Author        = a.Author,
+            ImageUrl      = a.ImageUrl,
+            ImagePublicId = a.ImagePublicId,
+            Tags          = a.Tags,
+            IsPublished   = a.IsPublished,
+            PublishedDate = a.PublishedDate,
+            CreatedAt     = a.CreatedAt,
+            UpdatedAt     = a.UpdatedAt,
+            UserId        = a.UserId,
+        };
 
     public async Task<(IEnumerable<Article> Items, int TotalCount)> GetAllAsync(
         int     page,
@@ -20,61 +47,104 @@ public class ArticleRepository : IArticleRepository
         bool    isAdmin       = false,
         int?    viewerId      = null)
     {
-        var query = _db.Articles
-                       .Include(a => a.User)
-                       .Include(a => a.Images)
-                       .AsNoTracking()
-                       .AsQueryable();
-
-        // Visibility rules:
-        //  - Admin: may filter by published state explicitly (true / false / null = all).
-        //  - Author/logged-in: see all published articles PLUS their own drafts.
-        //  - Anonymous / Guest: published articles only.
-        if (isAdmin)
+        // Build the filtered base query (no Includes yet) so we can reuse it for
+        // both the rich query and the degraded fallback.
+        IQueryable<Article> Filtered()
         {
-            if (publishedOnly.HasValue)
-                query = query.Where(a => a.IsPublished == publishedOnly.Value);
+            var query = _db.Articles.AsNoTracking().AsQueryable();
+
+            // Visibility rules:
+            //  - Admin: may filter by published state explicitly (true / false / null = all).
+            //  - Author/logged-in: see all published articles PLUS their own drafts.
+            //  - Anonymous / Guest: published articles only.
+            if (isAdmin)
+            {
+                if (publishedOnly.HasValue)
+                    query = query.Where(a => a.IsPublished == publishedOnly.Value);
+            }
+            else if (viewerId.HasValue)
+            {
+                query = query.Where(a => a.IsPublished || a.UserId == viewerId.Value);
+            }
+            else
+            {
+                query = query.Where(a => a.IsPublished);
+            }
+
+            // Filter by tag (simple contains check; extend with a tags table if needed)
+            if (!string.IsNullOrWhiteSpace(tag))
+                query = query.Where(a => a.Tags != null && a.Tags.Contains(tag));
+
+            // Full-text search on title and content
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.ToLower();
+                query = query.Where(a =>
+                    a.Title.ToLower().Contains(term) ||
+                    a.Content.ToLower().Contains(term) ||
+                    a.Author.ToLower().Contains(term));
+            }
+
+            return query;
         }
-        else if (viewerId.HasValue)
+
+        // COUNT(*) touches no optional columns, so it is always safe.
+        var total = await Filtered().CountAsync();
+
+        try
         {
-            query = query.Where(a => a.IsPublished || a.UserId == viewerId.Value);
+            // Preferred path: full data including author + gallery images.
+            var items = await Filtered()
+                .Include(a => a.User)
+                .Include(a => a.Images)
+                .OrderByDescending(a => a.PublishedDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (items, total);
         }
-        else
+        catch (Exception ex)
         {
-            query = query.Where(a => a.IsPublished);
+            // Schema likely predates the multi-image/video migrations. Degrade to
+            // core columns so the blog still renders (no gallery/video/author).
+            _logger.LogWarning(ex,
+                "Rich article query failed — falling back to core columns. " +
+                "Apply the AddArticleImagesTable + AddArticleMediaSupport migrations to restore galleries/video.");
+
+            var items = await Filtered()
+                .OrderByDescending(a => a.PublishedDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(CoreProjection)
+                .ToListAsync();
+
+            return (items, total);
         }
-
-        // Filter by tag (simple contains check; extend with a tags table if needed)
-        if (!string.IsNullOrWhiteSpace(tag))
-            query = query.Where(a => a.Tags != null && a.Tags.Contains(tag));
-
-        // Full-text search on title and content
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.ToLower();
-            query = query.Where(a =>
-                a.Title.ToLower().Contains(term) ||
-                a.Content.ToLower().Contains(term) ||
-                a.Author.ToLower().Contains(term));
-        }
-
-        var total = await query.CountAsync();
-
-        var items = await query
-            .OrderByDescending(a => a.PublishedDate)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        return (items, total);
     }
 
-    public async Task<Article?> GetByIdAsync(int id) =>
-        await _db.Articles
-                 .Include(a => a.User)
-                 .Include(a => a.Images)
-                 .AsNoTracking()
-                 .FirstOrDefaultAsync(a => a.Id == id);
+    public async Task<Article?> GetByIdAsync(int id)
+    {
+        try
+        {
+            return await _db.Articles
+                            .Include(a => a.User)
+                            .Include(a => a.Images)
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(a => a.Id == id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Rich single-article query failed for {Id} — falling back to core columns.", id);
+
+            return await _db.Articles
+                            .AsNoTracking()
+                            .Where(a => a.Id == id)
+                            .Select(CoreProjection)
+                            .FirstOrDefaultAsync();
+        }
+    }
 
     public async Task<Article> CreateAsync(Article article)
     {
