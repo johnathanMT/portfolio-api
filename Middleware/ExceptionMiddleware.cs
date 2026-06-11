@@ -13,15 +13,23 @@ public class ExceptionMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionMiddleware> _logger;
     private readonly IHostEnvironment _env;
+    private readonly bool _detailedErrors;
 
     public ExceptionMiddleware(
         RequestDelegate next,
         ILogger<ExceptionMiddleware> logger,
-        IHostEnvironment env)
+        IHostEnvironment env,
+        IConfiguration config)
     {
         _next   = next;
         _logger = logger;
         _env    = env;
+        // Set DetailedErrors=true (appsettings or env var) on Render to temporarily
+        // expose the real exception text in the response `errors[]` for debugging
+        // (e.g. a MySqlException about a missing ArticleImages table). Turn it off
+        // again once diagnosed so internals aren't leaked to clients.
+        _detailedErrors = _env.IsDevelopment()
+            || string.Equals(config["DetailedErrors"], "true", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -59,8 +67,10 @@ public class ExceptionMiddleware
         var response = ApiResponse<object>.Fail(
             message:    message,
             statusCode: (int)statusCode,
-            // Only expose stack traces in development
-            errors: _env.IsDevelopment()
+            // Expose the real exception text only when detailed errors are enabled
+            // (Development, or DetailedErrors=true). Includes inner exception, which
+            // is where the actual DB/Cloudinary cause usually lives.
+            errors: _detailedErrors
                     ? new List<string> { exception.ToString() }
                     : null
         );
