@@ -16,7 +16,12 @@ namespace PortfolioApi.Controllers;
 public class ShareController : ControllerBase
 {
     private readonly IArticleService _articles;
-    public ShareController(IArticleService articles) => _articles = articles;
+    private readonly IConfiguration _config;
+    public ShareController(IArticleService articles, IConfiguration config)
+    {
+        _articles = articles;
+        _config   = config;
+    }
 
     [HttpGet("/share/{id:int}")]
     public async Task<IActionResult> Share(int id)
@@ -26,9 +31,17 @@ public class ShareController : ControllerBase
             return NotFound("Article not found.");
 
         var a = res.Data;
-        var target = $"https://johnathanmt.github.io/Myweb/blog.html#{id}";
+
+        // Domain-agnostic: read the live frontend origin from config (Frontend:Url,
+        // overridable via the Frontend__Url env var on Render). Defaults to the
+        // current site so previews always link to the right place.
+        var siteUrl = (_config["Frontend:Url"] ?? "https://myothant.dev").TrimEnd('/');
+
+        // NOTE: blog.js reads the post id from the QUERY string (?id=), not the
+        // hash — so the human redirect must use ?id= or it lands on the list.
+        var target = $"{siteUrl}/blog.html?id={id}";
         var image = string.IsNullOrWhiteSpace(a.ImageUrl)
-            ? "https://johnathanmt.github.io/Myweb/Myweb_photo/My_profile2_for_myweb.jpg"
+            ? $"{siteUrl}/Myweb_photo/My_profile2_for_myweb.jpg"
             : a.ImageUrl;
 
         string snippet = a.Content.Length > 160 ? a.Content[..160].TrimEnd() + "…" : a.Content;
