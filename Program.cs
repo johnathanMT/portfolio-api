@@ -11,6 +11,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -23,6 +24,28 @@ using PortfolioApi.Services;
 using PortfolioApi.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ─────────────────────────────────────────────────────────────
+// 0. REVERSE PROXY (Render/Vercel terminate TLS) + HSTS
+//    Render's edge proxy terminates HTTPS, so the app must trust the
+//    X-Forwarded-Proto/-For headers to know the real scheme + client IP
+//    (needed for correct HTTPS redirect, secure cookies, and per-IP limits).
+// ─────────────────────────────────────────────────────────────
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // The proxy IP is not fixed on Render; trust the platform edge.
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Strict-Transport-Security: force HTTPS for a year, incl. subdomains, preloadable.
+builder.Services.AddHsts(options =>
+{
+    options.Preload           = true;
+    options.IncludeSubDomains = true;
+    options.MaxAge            = TimeSpan.FromDays(365);
+});
 
 // ─────────────────────────────────────────────────────────────
 // 1. DATABASE  — Pomelo MySQL with Aiven connection string
@@ -149,6 +172,19 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // GLOBAL safety net — every endpoint (incl. Admin/Share/Health and anything
+    // added later) is capped per client IP, even without an [EnableRateLimiting]
+    // attribute. Named policies below stack ON TOP for stricter routes.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window      = TimeSpan.FromSeconds(60),
+                PermitLimit = 200,
+                QueueLimit  = 0,
+            }));
+
     // General API policy: 100 req / 60 s
     options.AddFixedWindowLimiter("general", opt =>
     {
@@ -249,45 +285,61 @@ var app = builder.Build();
 // ─────────────────────────────────────────────────────────────
 // 9. MIDDLEWARE PIPELINE (order matters)
 // ─────────────────────────────────────────────────────────────
+var isDev = app.Environment.IsDevelopment();
 
-// A. Global exception handler — must be FIRST so it catches everything
+// A. Reverse-proxy headers FIRST — real scheme + client IP for everything below.
+app.UseForwardedHeaders();
+
+// B. Global exception handler — early so it catches everything that follows.
 app.UseMiddleware<ExceptionMiddleware>();
 
-// B. Security headers
+// C. Security headers (applied to EVERY response)
 app.Use(async (ctx, next) =>
 {
-    ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
-    ctx.Response.Headers.Append("X-Frame-Options",        "DENY");
-    ctx.Response.Headers.Append("X-XSS-Protection",       "1; mode=block");
-    ctx.Response.Headers.Append("Referrer-Policy",         "strict-origin-when-cross-origin");
-    ctx.Response.Headers.Append("Permissions-Policy",      "camera=(), microphone=(), geolocation=()");
+    var h = ctx.Response.Headers;
+    h.Append("X-Content-Type-Options", "nosniff");
+    h.Append("X-Frame-Options",        "DENY");
+    h.Append("Referrer-Policy",        "strict-origin-when-cross-origin");
+    h.Append("Permissions-Policy",     "camera=(), microphone=(), geolocation=()");
+    h.Append("Cross-Origin-Opener-Policy",   "same-origin");
+    h.Append("Cross-Origin-Resource-Policy", "same-site");
+    // (X-XSS-Protection intentionally omitted — deprecated/harmful; CSP replaces it.)
+    // This is a JSON API (Swagger is dev-only), so lock content sources down in prod.
+    if (!isDev)
+        h.Append("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     await next();
 });
 
-// C. Swagger
-app.UseSwagger();
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTN Portfolio API v1");
-    c.RoutePrefix    = string.Empty; // Swagger at root /
-    c.DocumentTitle  = "MTN Portfolio API";
-    c.DefaultModelsExpandDepth(-1); 
-});
+// D. HSTS (prod only — never over plain-HTTP localhost).
+if (!isDev) app.UseHsts();
 
-// D. HTTPS redirection
+// E. HTTPS redirection
 app.UseHttpsRedirection();
 
-// E. Rate limiter
+// F. Swagger — DEVELOPMENT ONLY (never publish the full API surface in prod).
+if (isDev)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTN Portfolio API v1");
+        c.RoutePrefix    = string.Empty; // Swagger at root /
+        c.DocumentTitle  = "MTN Portfolio API";
+        c.DefaultModelsExpandDepth(-1);
+    });
+}
+
+// G. Rate limiter
 app.UseRateLimiter();
 
-// F. CORS — must be before Auth
+// H. CORS — must be before Auth
 app.UseCors("PortfolioCors");
 
-// G. Authentication & Authorization
+// I. Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-// H. Controllers
+// J. Controllers
 app.MapControllers();
 
 // ─────────────────────────────────────────────────────────────
