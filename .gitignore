@@ -62,10 +62,9 @@ Thumbs.db
 # NEVER commit real secrets. Use Render Environment Variables.
 # appsettings.json is committed with PLACEHOLDER values only.
 # appsettings.Production.json is gitignored for safety.
-<<<<<<< HEAD
-=======
-appsettings.json
->>>>>>> bbfd728 (feat: production-ready .NET 8 Portfolio API (no secrets in history))
+# NOTE: appsettings.json itself is intentionally tracked with PLACEHOLDER
+# values, so it is NOT ignored here. Real values come from env vars / the
+# files below, which ARE ignored.
 appsettings.Production.json
 appsettings.*.local.json
 secrets.json
@@ -74,8 +73,6 @@ secrets.json
 
 # Docker
 .dockerignore
-<<<<<<< HEAD
-=======
+
 # Deployment helper scripts (contain tokens — never commit)
 *.command
->>>>>>> bbfd728 (feat: production-ready .NET 8 Portfolio API (no secrets in history))
