@@ -12,10 +12,19 @@ public class AppDbContext : DbContext
     public DbSet<ArticleImage>    ArticleImages    { get; set; }
     public DbSet<ArticleLike>     ArticleLikes     { get; set; }
     public DbSet<ArticleReaction> ArticleReactions { get; set; }
+    public DbSet<MemoryTag>       MemoryTags       { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // ── Sanctuary memory tags ──────────────────────────────
+        modelBuilder.Entity<MemoryTag>(entity =>
+        {
+            entity.HasIndex(m => m.OperatorToken);            // fast ownership lookups
+            entity.HasIndex(m => m.CreatedAt);
+            entity.Property(m => m.Landmark).HasDefaultValue("tree");
+        });
 
         // ── Users ──────────────────────────────────────────────
         modelBuilder.Entity<User>(entity =>

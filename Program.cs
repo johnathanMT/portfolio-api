@@ -212,6 +212,17 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit         = 0;
     });
 
+    // Sanctuary memory writes: very tight token bucket (a human leaves ONE
+    // memory, not hundreds) → stops AI/bot spam on POST /api/sanctuary/memories.
+    options.AddTokenBucketLimiter("memory-write", opt =>
+    {
+        opt.TokenLimit           = rlSection.GetValue("MemoryWriteBurst", 5);
+        opt.TokensPerPeriod      = 1;
+        opt.ReplenishmentPeriod  = TimeSpan.FromSeconds(rlSection.GetValue("MemoryWriteSeconds", 20));
+        opt.AutoReplenishment    = true;
+        opt.QueueLimit           = 0;
+    });
+
     // Graceful rejection response
     options.OnRejected = async (ctx, _) =>
     {
