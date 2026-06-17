@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -85,7 +86,7 @@ public class SanctuaryController : ControllerBase
             return BadRequest(new { success = false, message = "Missing or invalid operator token." });
         var tokenHash = Hash(raw);
 
-        var author = Sanitize(dto.AuthorName, 40);
+        var author = Sanitize(dto.Author, 40);
         var message = Sanitize(dto.Message, 240);
         if (author.Length == 0 || message.Length == 0)
             return BadRequest(new { success = false, message = "Name and message are required." });
@@ -120,14 +121,40 @@ public class SanctuaryController : ControllerBase
         return CreatedAtAction(nameof(GetMemories), new { id = tag.Id }, new { success = true, id = tag.Id });
     }
 
-    // Drop control characters + HTML-encode → safe plain text; hard length cap.
+    // GET /api/sanctuary/admin/memories  — ADMIN ONLY: every memory, UNMASKED.
+    // Requires a valid JWT with the "Admin" role (Authorization: Bearer <token>).
+    [HttpGet("admin/memories")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetAllForAdmin()
+    {
+        var memories = await _db.MemoryTags
+            .AsNoTracking()
+            .OrderByDescending(m => m.CreatedAt)
+            .Select(m => new
+            {
+                id = m.Id,
+                author = m.AuthorName,
+                message = m.Message,                 // full text — never masked for admin
+                landmark = m.Landmark,
+                position = new { x = m.PositionX, y = m.PositionY, z = m.PositionZ },
+                createdAt = m.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(new { success = true, count = memories.Count, memories });
+    }
+
+    // Drop control characters + angle brackets → safe plain text; hard length cap.
     private static string Sanitize(string? s, int max)
     {
         s = (s ?? string.Empty).Trim();
         var sb = new StringBuilder(s.Length);
+        // Drop control chars + angle brackets (no HTML can be stored). We do NOT
+        // HTML-encode: the client renders this as React text (auto-escaped), so
+        // encoding here would surface literal entities like "it&#39;s".
         foreach (var ch in s)
-            if (!char.IsControl(ch)) sb.Append(ch);
-        var clean = System.Net.WebUtility.HtmlEncode(sb.ToString());
+            if (!char.IsControl(ch) && ch != '<' && ch != '>') sb.Append(ch);
+        var clean = sb.ToString();
         return clean.Length > max ? clean[..max] : clean;
     }
 }
@@ -135,7 +162,7 @@ public class SanctuaryController : ControllerBase
 /// <summary>Incoming payload for a new/edited memory.</summary>
 public class CreateMemoryDto
 {
-    public string AuthorName { get; set; } = string.Empty;
+    public string Author { get; set; } = string.Empty;   // matches the frontend's `author`
     public string Message { get; set; } = string.Empty;
     public string Landmark { get; set; } = "tree";
     public float PositionX { get; set; }
@@ -150,7 +177,7 @@ public class CreateMemoryValidator : AbstractValidator<CreateMemoryDto>
 
     public CreateMemoryValidator()
     {
-        RuleFor(x => x.AuthorName).NotEmpty().MaximumLength(40);
+        RuleFor(x => x.Author).NotEmpty().MaximumLength(40);
         RuleFor(x => x.Message).NotEmpty().MaximumLength(240);
         RuleFor(x => x.Landmark).Must(l => Landmarks.Contains(l)).WithMessage("Invalid landmark.");
         RuleFor(x => x.PositionX).InclusiveBetween(-200f, 200f);
