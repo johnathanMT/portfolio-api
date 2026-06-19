@@ -173,7 +173,16 @@ public class CreateMemoryDto
 /// <summary>Allow-list validation (auto-registered via AddValidatorsFromAssembly).</summary>
 public class CreateMemoryValidator : AbstractValidator<CreateMemoryDto>
 {
-    private static readonly string[] Landmarks = { "tree", "ship", "village", "castle", "plaza" };
+    // Accepts both the legacy zone keys and the specific clickable-building keys
+    // sent by the frontend (SCENE_LAYOUT). Keep in sync with PLACE_KEYS / BUILDING_LABEL.
+    private static readonly string[] Landmarks =
+    {
+        // legacy zones
+        "tree", "ship", "village", "castle", "plaza",
+        // clickable buildings
+        "sakura", "torii", "bagan", "ferris_wheel", "jp_castle",
+        "castle_sakura", "plaza_night", "hospital", "london_university",
+    };
 
     public CreateMemoryValidator()
     {

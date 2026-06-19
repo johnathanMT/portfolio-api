@@ -9,7 +9,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: free                    # Upgrade to "starter" for always-on
+    plan: starter                    # Upgrade to "starter" for always-on
 
     # Render sets PORT automatically — our Dockerfile reads it
     healthCheckPath: /health
@@ -47,6 +47,10 @@ services:
         sync: false
 
       - key: Cors__AllowedOrigins__0
+        value: https://myothant.dev
+      - key: Cors__AllowedOrigins__1
+        value: https://www.myothant.dev
+      - key: Cors__AllowedOrigins__2
         value: https://johnathanmt.github.io
 
       - key: RateLimit__GeneralPermitLimit

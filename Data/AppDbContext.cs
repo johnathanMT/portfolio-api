@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<ArticleLike>     ArticleLikes     { get; set; }
     public DbSet<ArticleReaction> ArticleReactions { get; set; }
     public DbSet<MemoryTag>       MemoryTags       { get; set; }
+    public DbSet<FarewellRsvp>    FarewellRsvps    { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +25,14 @@ public class AppDbContext : DbContext
             entity.HasIndex(m => m.OperatorToken);            // fast ownership lookups
             entity.HasIndex(m => m.CreatedAt);
             entity.Property(m => m.Landmark).HasDefaultValue("tree");
+        });
+
+        // ── Farewell RSVPs / living monuments ──────────────────
+        modelBuilder.Entity<FarewellRsvp>(entity =>
+        {
+            entity.HasIndex(f => f.OperatorToken);            // one monument per person + ownership
+            entity.HasIndex(f => f.CreatedAt);
+            entity.Property(f => f.PlantType).HasDefaultValue("sakura");
         });
 
         // ── Users ──────────────────────────────────────────────
