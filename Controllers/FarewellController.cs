@@ -40,20 +40,31 @@ public class FarewellController : ControllerBase
     private static string Hash(string raw) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw ?? string.Empty)));
 
-    // ── Memorial grove layout ────────────────────────────────────────────────
-    // Each new monument takes the next free plot. Plots sit in a tidy arc in an
-    // open area of the world; tune to taste. Y=0 (ground); the client lifts the
-    // nametag above the plant. Coordinates are assigned ONCE and stored, so a
-    // colleague editing their RSVP keeps the same spot.
+    // ── Memorial grove layout: a RING around the main Sakura tree ─────────────
+    // Each monument takes the next free slot on a concentric circle centred on the
+    // original Sakura. 8 plants per ring; once a ring fills, the radius grows by 3
+    // and a new outer ring begins (staggered so trees don't line up radially).
+    // Coordinates are assigned ONCE and stored, so editing an RSVP keeps the spot.
+    //
+    // NOTE: the in-world Sakura model sits at (x:0, z:0) in SCENE_LAYOUT. The brief
+    // specified centre (0, -10); change CenterZ to 0f if you want the ring to hug
+    // the visible tree exactly.
+    private const float CenterX = 0f;
+    private const float CenterZ = -10f;
+    private const int   PerRing = 8;
+    private const float BaseRadius = 6f;
+    private const float RingGap = 3f;
+
     private static (float x, float y, float z) PlotForIndex(int i)
     {
-        const int perRow = 8;
-        const float gap = 7f;
-        float startX = -((perRow - 1) * gap) / 2f;   // centre the row on X=0
-        int row = i / perRow;
-        int col = i % perRow;
-        float x = startX + col * gap;
-        float z = 44f + row * gap;                    // grove begins south of the plaza
+        int ring = i / PerRing;                       // 0, 1, 2 … (outward)
+        int slot = i % PerRing;                       // position on this ring
+        float radius = BaseRadius + ring * RingGap;
+        // Even spacing around the circle; offset every other ring by half a step
+        // so outer trees sit between the gaps of the inner ones.
+        double angle = (2.0 * Math.PI / PerRing) * slot + (ring % 2 == 1 ? Math.PI / PerRing : 0.0);
+        float x = CenterX + (float)(radius * Math.Cos(angle));
+        float z = CenterZ + (float)(radius * Math.Sin(angle));
         return (x, 0f, z);
     }
 
@@ -73,9 +84,12 @@ public class FarewellController : ControllerBase
 
         var name    = Sanitize(dto.Name, 40);
         var message = Sanitize(dto.Message, 240);
-        var dates   = Sanitize(dto.DatesAvailable, 120);
-        var food    = Sanitize(dto.FoodPreference, 80);
         var plant   = (dto.PlantType ?? "sakura").Trim().ToLowerInvariant();
+        var attending = dto.Attending;
+        // If they can't join the party, dates/food are irrelevant → store empty
+        // regardless of what was sent. Everyone can still plant a tree.
+        var dates   = attending ? Sanitize(dto.DatesAvailable, 120) : string.Empty;
+        var food    = attending ? Sanitize(dto.FoodPreference, 80)  : string.Empty;
         if (name.Length == 0 || message.Length == 0)
             return BadRequest(new { success = false, message = "Name and message are required." });
 
@@ -85,6 +99,7 @@ public class FarewellController : ControllerBase
         {
             existing.Name           = name;
             existing.Message        = message;
+            existing.Attending      = attending;
             existing.DatesAvailable = dates;
             existing.FoodPreference = food;
             existing.PlantType      = plant;
@@ -108,6 +123,7 @@ public class FarewellController : ControllerBase
         {
             Name           = name,
             Message        = message,
+            Attending      = attending,
             DatesAvailable = dates,
             FoodPreference = food,
             PlantType      = plant,
@@ -168,6 +184,7 @@ public class FarewellController : ControllerBase
                 id             = f.Id,
                 name           = f.Name,
                 message        = f.Message,
+                attending      = f.Attending,
                 datesAvailable = f.DatesAvailable,
                 foodPreference = f.FoodPreference,
                 plantType      = f.PlantType,
@@ -196,9 +213,10 @@ public class FarewellController : ControllerBase
 /// <summary>Incoming payload for a farewell RSVP. Position is assigned server-side.</summary>
 public class CreateFarewellRsvpDto
 {
+    public bool Attending { get; set; } = true;          // can they join the party?
     public string Name { get; set; } = string.Empty;
-    public string DatesAvailable { get; set; } = string.Empty;
-    public string FoodPreference { get; set; } = string.Empty;
+    public string DatesAvailable { get; set; } = string.Empty;  // optional (empty when not attending)
+    public string FoodPreference { get; set; } = string.Empty;  // optional (empty when not attending)
     public string Message { get; set; } = string.Empty;
     public string PlantType { get; set; } = "sakura";
 }

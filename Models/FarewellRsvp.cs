@@ -22,11 +22,17 @@ public class FarewellRsvp
     [Required, MaxLength(40)]
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Free-text list of dates the colleague is available (e.g. "Jul 4, Jul 6").</summary>
+    /// <summary>Whether the colleague can attend the farewell party. Everyone can
+    /// still plant a tree; only attendees provide dates + food.</summary>
+    public bool Attending { get; set; } = true;
+
+    /// <summary>Free-text list of dates the colleague is available (e.g. "Jul 4, Jul 6").
+    /// Optional — empty when not attending.</summary>
     [MaxLength(120)]
     public string DatesAvailable { get; set; } = string.Empty;
 
-    /// <summary>Food preference / dietary note (e.g. "Vegetarian", "No pork").</summary>
+    /// <summary>Food preference / dietary note (e.g. "Vegetarian", "No pork").
+    /// Optional — empty when not attending.</summary>
     [MaxLength(80)]
     public string FoodPreference { get; set; } = string.Empty;
 
