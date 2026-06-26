@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<ArticleReaction> ArticleReactions { get; set; }
     public DbSet<MemoryTag>       MemoryTags       { get; set; }
     public DbSet<FarewellRsvp>    FarewellRsvps    { get; set; }
+    public DbSet<Poem>            Poems            { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +34,13 @@ public class AppDbContext : DbContext
             entity.HasIndex(f => f.OperatorToken);            // one monument per person + ownership
             entity.HasIndex(f => f.CreatedAt);
             entity.Property(f => f.PlantType).HasDefaultValue("sakura");
+        });
+
+        // ── Poems (techno-science flip-book) ───────────────────
+        modelBuilder.Entity<Poem>(entity =>
+        {
+            entity.Property(p => p.Content).HasColumnType("longtext");  // multi-line bodies
+            entity.HasIndex(p => p.CreatedDate);
         });
 
         // ── Users ──────────────────────────────────────────────
