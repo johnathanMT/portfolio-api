@@ -73,9 +73,17 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IUserRepository,        UserRepository>();
 builder.Services.AddScoped<IArticleRepository,     ArticleRepository>();
 builder.Services.AddScoped<IInteractionRepository, InteractionRepository>();
+builder.Services.AddScoped<IPoemRepository,        PoemRepository>();
+builder.Services.AddScoped<IMemoryRepository,      MemoryRepository>();
+builder.Services.AddScoped<IFarewellRepository,    FarewellRepository>();
+builder.Services.AddScoped<IVisitorRepository,     VisitorRepository>();
 builder.Services.AddScoped<IAuthService,           AuthService>();
 builder.Services.AddScoped<IArticleService,        ArticleService>();
 builder.Services.AddScoped<IInteractionService,    InteractionService>();
+builder.Services.AddScoped<IPoemService,           PoemService>();
+builder.Services.AddScoped<IMemoryService,         MemoryService>();
+builder.Services.AddScoped<IFarewellService,       FarewellService>();
+builder.Services.AddScoped<IVisitorService,        VisitorService>();
 builder.Services.AddSingleton<IImageService,       CloudinaryImageService>();
 
 // ─────────────────────────────────────────────────────────────
