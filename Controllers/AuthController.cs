@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using PortfolioApi.Common;
@@ -84,6 +86,44 @@ public class AuthController : ControllerBase
         {
             200 => Ok(result),
             _   => Unauthorized(result),
+        };
+    }
+
+    // ──────────────────────────────────────────────────────────
+    /// <summary>Change your own password (must be signed in).</summary>
+    /// <remarks>
+    ///     POST /api/auth/change-password
+    ///     Authorization: Bearer &lt;jwt&gt;
+    ///     { "currentPassword": "OldP@ss1", "newPassword": "NewStr0ng!Pass" }
+    /// </remarks>
+    /// <response code="200">Password updated.</response>
+    /// <response code="400">Validation error / new password same as old.</response>
+    /// <response code="401">Not signed in, or current password incorrect.</response>
+    /// <response code="429">Too many requests — rate limit reached.</response>
+    [HttpPost("change-password")]
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(BuildValidationError());
+
+        // Identity comes from the verified JWT, never the request body.
+        var idClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!int.TryParse(idClaim, out var userId))
+            return Unauthorized(ApiResponse<object>.Fail("Invalid or missing authentication token.", 401));
+
+        var result = await _authService.ChangePasswordAsync(userId, dto);
+        return result.StatusCode switch
+        {
+            200 => Ok(result),
+            401 => Unauthorized(result),
+            404 => NotFound(result),
+            _   => BadRequest(result),
         };
     }
 

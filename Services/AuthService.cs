@@ -80,6 +80,35 @@ public class AuthService : IAuthService
     }
 
     // ──────────────────────────────────────────────────────────
+    /// <summary>
+    /// Change the caller's password. Requires the current password (verified with
+    /// BCrypt) and a new one that differs from it. The identity comes from the JWT
+    /// (userId), never from the request body, so a caller can only change their own.
+    /// </summary>
+    public async Task<ApiResponse> ChangePasswordAsync(int userId, ChangePasswordDto dto)
+    {
+        var user = await _userRepo.GetByIdAsync(userId);
+        if (user is null)
+            return ApiResponse.Fail("User not found.", 404);
+
+        if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+        {
+            _logger.LogWarning("Change-password rejected (wrong current password) for {Email}", user.Email);
+            return ApiResponse.Fail("Current password is incorrect.", 401);
+        }
+
+        // Defence-in-depth: the validator also blocks this, but never let the
+        // new password equal the old one even if validation is bypassed.
+        if (BCrypt.Net.BCrypt.Verify(dto.NewPassword, user.PasswordHash))
+            return ApiResponse.Fail("New password must be different from the current one.", 400);
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword, workFactor: 12);
+        await _userRepo.UpdateAsync(user);
+        _logger.LogInformation("Password changed for {Email}", user.Email);
+        return ApiResponse.OkNoData("Password updated successfully.");
+    }
+
+    // ──────────────────────────────────────────────────────────
     private string GenerateJwtToken(User user)
     {
         var jwtKey     = _config["Jwt:Key"]
