@@ -19,6 +19,7 @@ using Microsoft.OpenApi.Models;
 using PortfolioApi.Data;
 using PortfolioApi.Interfaces;
 using PortfolioApi.Middleware;
+using PortfolioApi.Models;
 using PortfolioApi.Repositories;
 using PortfolioApi.Services;
 using PortfolioApi.Validators;
@@ -42,9 +43,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Strict-Transport-Security: force HTTPS for a year, incl. subdomains, preloadable.
 builder.Services.AddHsts(options =>
 {
-    options.Preload           = true;
+    options.Preload = true;
     options.IncludeSubDomains = true;
-    options.MaxAge            = TimeSpan.FromDays(365);
+    options.MaxAge = TimeSpan.FromDays(365);
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -61,30 +62,30 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         mySqlOptions =>
         {
             mySqlOptions.EnableRetryOnFailure(
-                maxRetryCount:                    5,
-                maxRetryDelay:                    TimeSpan.FromSeconds(10),
-                errorNumbersToAdd:                null);
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null);
             mySqlOptions.CommandTimeout(30);
         }));
 
 // ─────────────────────────────────────────────────────────────
 // 2. DEPENDENCY INJECTION — Repositories & Services
 // ─────────────────────────────────────────────────────────────
-builder.Services.AddScoped<IUserRepository,        UserRepository>();
-builder.Services.AddScoped<IArticleRepository,     ArticleRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IArticleRepository, ArticleRepository>();
 builder.Services.AddScoped<IInteractionRepository, InteractionRepository>();
-builder.Services.AddScoped<IPoemRepository,        PoemRepository>();
-builder.Services.AddScoped<IMemoryRepository,      MemoryRepository>();
-builder.Services.AddScoped<IFarewellRepository,    FarewellRepository>();
-builder.Services.AddScoped<IVisitorRepository,     VisitorRepository>();
-builder.Services.AddScoped<IAuthService,           AuthService>();
-builder.Services.AddScoped<IArticleService,        ArticleService>();
-builder.Services.AddScoped<IInteractionService,    InteractionService>();
-builder.Services.AddScoped<IPoemService,           PoemService>();
-builder.Services.AddScoped<IMemoryService,         MemoryService>();
-builder.Services.AddScoped<IFarewellService,       FarewellService>();
-builder.Services.AddScoped<IVisitorService,        VisitorService>();
-builder.Services.AddSingleton<IImageService,       CloudinaryImageService>();
+builder.Services.AddScoped<IPoemRepository, PoemRepository>();
+builder.Services.AddScoped<IMemoryRepository, MemoryRepository>();
+builder.Services.AddScoped<IFarewellRepository, FarewellRepository>();
+builder.Services.AddScoped<IVisitorRepository, VisitorRepository>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IArticleService, ArticleService>();
+builder.Services.AddScoped<IInteractionService, InteractionService>();
+builder.Services.AddScoped<IPoemService, PoemService>();
+builder.Services.AddScoped<IMemoryService, MemoryService>();
+builder.Services.AddScoped<IFarewellService, FarewellService>();
+builder.Services.AddScoped<IVisitorService, VisitorService>();
+builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
 
 // ─────────────────────────────────────────────────────────────
 // 3. FLUENT VALIDATION
@@ -105,20 +106,20 @@ builder.Services
     .AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer           = true,
-            ValidateAudience         = true,
-            ValidateLifetime         = true,
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer              = builder.Configuration["Jwt:Issuer"],
-            ValidAudience            = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            ClockSkew                = TimeSpan.Zero, // No tolerance for expired tokens
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.Zero, // No tolerance for expired tokens
         };
 
         // Return JSON on 401/403 instead of an empty body
@@ -127,14 +128,14 @@ builder.Services
             OnChallenge = async ctx =>
             {
                 ctx.HandleResponse();
-                ctx.Response.StatusCode  = 401;
+                ctx.Response.StatusCode = 401;
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync(
                     """{"success":false,"message":"Authentication required. Please provide a valid JWT token.","statusCode":401}""");
             },
             OnForbidden = async ctx =>
             {
-                ctx.Response.StatusCode  = 403;
+                ctx.Response.StatusCode = 403;
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync(
                     """{"success":false,"message":"You do not have permission to perform this action. Admin role required.","statusCode":403}""");
@@ -188,47 +189,47 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                Window      = TimeSpan.FromSeconds(60),
+                Window = TimeSpan.FromSeconds(60),
                 PermitLimit = 200,
-                QueueLimit  = 0,
+                QueueLimit = 0,
             }));
 
     // General API policy: 100 req / 60 s
     options.AddFixedWindowLimiter("general", opt =>
     {
-        opt.Window             = TimeSpan.FromSeconds(rlSection.GetValue("GeneralWindowSeconds", 60));
-        opt.PermitLimit        = rlSection.GetValue("GeneralPermitLimit", 100);
+        opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("GeneralWindowSeconds", 60));
+        opt.PermitLimit = rlSection.GetValue("GeneralPermitLimit", 100);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit         = 0;
+        opt.QueueLimit = 0;
     });
 
     // Auth endpoints policy: 10 req / 15 min (brute-force protection)
     options.AddFixedWindowLimiter("auth", opt =>
     {
-        opt.Window             = TimeSpan.FromSeconds(rlSection.GetValue("AuthWindowSeconds", 900));
-        opt.PermitLimit        = rlSection.GetValue("AuthPermitLimit", 10);
+        opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("AuthWindowSeconds", 900));
+        opt.PermitLimit = rlSection.GetValue("AuthPermitLimit", 10);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit         = 0;
+        opt.QueueLimit = 0;
     });
 
     // Anonymous interactions policy: 30 req / 60 s (like/react spam protection)
     options.AddFixedWindowLimiter("interactions", opt =>
     {
-        opt.Window             = TimeSpan.FromSeconds(rlSection.GetValue("InteractionsWindowSeconds", 60));
-        opt.PermitLimit        = rlSection.GetValue("InteractionsPermitLimit", 30);
+        opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("InteractionsWindowSeconds", 60));
+        opt.PermitLimit = rlSection.GetValue("InteractionsPermitLimit", 30);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit         = 0;
+        opt.QueueLimit = 0;
     });
 
     // Sanctuary memory writes: very tight token bucket (a human leaves ONE
     // memory, not hundreds) → stops AI/bot spam on POST /api/sanctuary/memories.
     options.AddTokenBucketLimiter("memory-write", opt =>
     {
-        opt.TokenLimit           = rlSection.GetValue("MemoryWriteBurst", 5);
-        opt.TokensPerPeriod      = 1;
-        opt.ReplenishmentPeriod  = TimeSpan.FromSeconds(rlSection.GetValue("MemoryWriteSeconds", 20));
-        opt.AutoReplenishment    = true;
-        opt.QueueLimit           = 0;
+        opt.TokenLimit = rlSection.GetValue("MemoryWriteBurst", 5);
+        opt.TokensPerPeriod = 1;
+        opt.ReplenishmentPeriod = TimeSpan.FromSeconds(rlSection.GetValue("MemoryWriteSeconds", 20));
+        opt.AutoReplenishment = true;
+        opt.QueueLimit = 0;
     });
 
     // Graceful rejection response
@@ -249,29 +250,29 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title       = "MTN Portfolio API",
-        Version     = "v1",
+        Title = "MTN Portfolio API",
+        Version = "v1",
         Description = "Production-ready REST API for Myo Thant Naing's personal portfolio and blog system.",
-        Contact     = new OpenApiContact
+        Contact = new OpenApiContact
         {
-            Name  = "Myo Thant Naing",
+            Name = "Myo Thant Naing",
             Email = "myothantnaing1178@gmail.com",
-            Url   = new Uri("https://johnathanmt.github.io/Myweb/"),
+            Url = new Uri("https://johnathanmt.github.io/Myweb/"),
         },
     });
 
     // Add JWT Bearer button to Swagger UI
     var securityScheme = new OpenApiSecurityScheme
     {
-        Name         = "Authorization",
-        Description  = "Enter: **Bearer {your_jwt_token}**",
-        In           = ParameterLocation.Header,
-        Type         = SecuritySchemeType.Http,
-        Scheme       = "bearer",
+        Name = "Authorization",
+        Description = "Enter: **Bearer {your_jwt_token}**",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
         BearerFormat = "JWT",
-        Reference    = new OpenApiReference
+        Reference = new OpenApiReference
         {
-            Id   = JwtBearerDefaults.AuthenticationScheme,
+            Id = JwtBearerDefaults.AuthenticationScheme,
             Type = ReferenceType.SecurityScheme,
         },
     };
@@ -317,10 +318,10 @@ app.Use(async (ctx, next) =>
 {
     var h = ctx.Response.Headers;
     h.Append("X-Content-Type-Options", "nosniff");
-    h.Append("X-Frame-Options",        "DENY");
-    h.Append("Referrer-Policy",        "strict-origin-when-cross-origin");
-    h.Append("Permissions-Policy",     "camera=(), microphone=(), geolocation=()");
-    h.Append("Cross-Origin-Opener-Policy",   "same-origin");
+    h.Append("X-Frame-Options", "DENY");
+    h.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    h.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    h.Append("Cross-Origin-Opener-Policy", "same-origin");
     h.Append("Cross-Origin-Resource-Policy", "same-site");
     // (X-XSS-Protection intentionally omitted — deprecated/harmful; CSP replaces it.)
     // This is a JSON API (Swagger is dev-only), so lock content sources down in prod.
@@ -342,8 +343,8 @@ if (isDev)
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTN Portfolio API v1");
-        c.RoutePrefix    = string.Empty; // Swagger at root /
-        c.DocumentTitle  = "MTN Portfolio API";
+        c.RoutePrefix = string.Empty; // Swagger at root /
+        c.DocumentTitle = "MTN Portfolio API";
         c.DefaultModelsExpandDepth(-1);
     });
 }
@@ -366,7 +367,7 @@ app.MapControllers();
 // ─────────────────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
-    var db     = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
@@ -386,8 +387,87 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to apply migrations. Check connection string / Aiven IP access.");
-        throw;
+        // Non-fatal: log and keep booting so the API still starts and GET /health
+        // can report `database: disconnected` (far easier to diagnose than a dead
+        // service that returns nothing). A transient DB blip no longer takes the
+        // entire site down — DB-backed endpoints will surface 5xx until the
+        // database is reachable again, but the process stays alive.
+        logger.LogError(ex, "Failed to apply migrations. Check connection string / Aiven IP access. " +
+            "Starting anyway so /health is reachable; DB-backed endpoints will fail until the DB recovers.");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 11. ADMIN BOOTSTRAP (opt-in, idempotent) — create OR reset the admin account
+//     from environment variables so access is ALWAYS recoverable without DB
+//     surgery. Runs ONLY when ADMIN_EMAIL + ADMIN_PASSWORD are set. Once you're
+//     back in you may delete the env vars (leaving them simply re-asserts the
+//     same password on each boot). The raw password is never logged.
+//       Render → Environment:  ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_USERNAME (opt).
+// ─────────────────────────────────────────────────────────────
+using (var scope = app.Services.CreateScope())
+{
+    var cfg    = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    var email    = cfg["ADMIN_EMAIL"]?.Trim().ToLowerInvariant();
+    var password = cfg["ADMIN_PASSWORD"];
+    var username = cfg["ADMIN_USERNAME"]?.Trim();
+
+    if (!string.IsNullOrWhiteSpace(email) && !string.IsNullOrWhiteSpace(password))
+    {
+        try
+        {
+            if (password.Length < 8)
+            {
+                logger.LogWarning("Admin bootstrap skipped: ADMIN_PASSWORD must be at least 8 characters.");
+            }
+            else
+            {
+                var db   = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var hash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
+                var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+                if (user is null)
+                {
+                    // Username carries a UNIQUE index — choose a free one.
+                    var baseName = string.IsNullOrWhiteSpace(username) ? email.Split('@')[0] : username;
+                    if (baseName.Length > 100) baseName = baseName[..100];
+                    var uname = baseName;
+                    var n = 1;
+                    while (await db.Users.AnyAsync(u => u.Username == uname))
+                        uname = $"{baseName}{n++}";
+
+                    db.Users.Add(new User
+                    {
+                        Username     = uname,
+                        Email        = email,
+                        PasswordHash = hash,
+                        Role         = "Admin",
+                        CreatedAt    = DateTime.UtcNow,
+                        UpdatedAt    = DateTime.UtcNow,
+                    });
+                    await db.SaveChangesAsync();
+                    logger.LogWarning("Admin bootstrap: CREATED admin account for {Email}.", email);
+                }
+                else
+                {
+                    user.PasswordHash = hash;
+                    user.Role         = "Admin";
+                    user.UpdatedAt    = DateTime.UtcNow;
+                    // Rename only if a distinct, still-free username was supplied.
+                    if (!string.IsNullOrWhiteSpace(username) &&
+                        !await db.Users.AnyAsync(u => u.Username == username && u.Id != user.Id))
+                        user.Username = username.Length > 100 ? username[..100] : username;
+                    await db.SaveChangesAsync();
+                    logger.LogWarning("Admin bootstrap: RESET password and ensured Admin role for {Email}.", email);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Admin bootstrap failed (non-fatal); the app continues to run.");
+        }
     }
 }
 
