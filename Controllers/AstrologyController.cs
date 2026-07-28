@@ -8,6 +8,7 @@ using PortfolioApi.DTOs.Astrology;
 using PortfolioApi.Interfaces;
 using PortfolioApi.Models;
 using PortfolioApi.Security;
+using PortfolioApi.Services;
 
 namespace PortfolioApi.Controllers;
 
