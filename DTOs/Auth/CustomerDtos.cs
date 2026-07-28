@@ -22,6 +22,13 @@ public class UpdateUsernameDto
     [Required, StringLength(100, MinimumLength = 2)] public string Username { get; set; } = string.Empty;
 }
 
+/// <summary>Resend confirmation — no validation attributes so the response is
+/// always a constant, generic success (anti-enumeration).</summary>
+public class ResendDto
+{
+    public string Email { get; set; } = string.Empty;
+}
+
 /// <summary>A saved chart returned to the account owner (decrypted).</summary>
 public class CustomerChartView
 {

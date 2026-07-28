@@ -37,7 +37,19 @@ public class RemedyView
     public string Message { get; set; } = string.Empty;
     public string BirthInfo { get; set; } = string.Empty;
     public bool Handled { get; set; }
+    public string Status { get; set; } = "Pending";
+    public string Notes { get; set; } = string.Empty;
     public string CreatedAt { get; set; } = string.Empty;
+}
+
+// ── Admin CRM action DTOs ──
+public class StatusDto { public string Status { get; set; } = "Pending"; }
+public class NotesDto { public string Notes { get; set; } = string.Empty; }
+public class ReplyDto
+{
+    [System.ComponentModel.DataAnnotations.StringLength(160)] public string Subject { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.StringLength(8000)]
+    public string Body { get; set; } = string.Empty;
 }
 
 /// <summary>Admin view — decrypted saved chart.</summary>

@@ -128,21 +128,102 @@ public class AstrologyController : ControllerBase
             Message = FieldCrypto.Decrypt(r.Message, _encKey),
             BirthInfo = FieldCrypto.Decrypt(r.BirthInfo, _encKey),
             Handled = r.Handled,
+            Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
+            Notes = r.Notes ?? string.Empty,
             CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
         }).ToList();
         return Ok(ApiResponse<List<RemedyView>>.Ok(view, "OK"));
     }
 
-    // ── Admin: toggle handled ───────────────────────────────────────────────────
-    [HttpPatch("admin/remedies/{id:int}/handled")]
+    private static readonly string[] ValidStatuses = { "Pending", "InProgress", "Completed", "Cancelled" };
+
+    // ── Admin: set status (Pending / InProgress / Completed / Cancelled) ─────────
+    [HttpPatch("admin/remedies/{id:int}/status")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> ToggleHandled(int id)
+    public async Task<IActionResult> SetStatus(int id, [FromBody] StatusDto dto)
     {
         var row = await _db.RemedyRequests.FindAsync(id);
         if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
-        row.Handled = !row.Handled;
+        if (!ValidStatuses.Contains(dto.Status)) return BadRequest(ApiResponse<object>.Fail("Invalid status.", 400));
+        row.Status = dto.Status;
+        row.Handled = dto.Status is "Completed" or "Cancelled";
         await _db.SaveChangesAsync();
-        return Ok(ApiResponse<object>.Ok(new { row.Id, row.Handled }, "Updated."));
+        return Ok(ApiResponse<object>.Ok(new { row.Id, row.Status }, "Status updated."));
+    }
+
+    // ── Admin: edit internal notes ──────────────────────────────────────────────
+    [HttpPatch("admin/remedies/{id:int}/notes")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> SetNotes(int id, [FromBody] NotesDto dto)
+    {
+        var row = await _db.RemedyRequests.FindAsync(id);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
+        row.Notes = (dto.Notes ?? string.Empty).Length > 8000 ? dto.Notes![..8000] : dto.Notes ?? string.Empty;
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { row.Id }, "Notes saved."));
+    }
+
+    // ── Admin: send an astrological reading / reply to the client by email ───────
+    [HttpPost("admin/remedies/{id:int}/reply")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> Reply(int id, [FromBody] ReplyDto dto)
+    {
+        if (!ModelState.IsValid) return BadRequest(ApiResponse<object>.Fail("Validation failed.", 400));
+        var row = await _db.RemedyRequests.FindAsync(id);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
+
+        string contact = FieldCrypto.Decrypt(row.Contact, _encKey).Trim();
+        if (!contact.Contains('@')) return BadRequest(ApiResponse<object>.Fail("This client did not leave an email address.", 400));
+
+        string name = FieldCrypto.Decrypt(row.Name, _encKey);
+        string subject = string.IsNullOrWhiteSpace(dto.Subject) ? "Vedin — သင့် ဗေဒင်ဟောစာတမ်း" : dto.Subject;
+        bool sent = await _email.SendAsync(contact, subject, ReadingReplyEmail(name, dto.Body));
+        if (sent) { row.Status = "Completed"; row.Handled = true; await _db.SaveChangesAsync(); }
+        return Ok(ApiResponse<object>.Ok(new { emailSent = sent }, sent ? "Reading emailed to the client." : "Could not send (SMTP not configured)."));
+    }
+
+    // ── Admin: delete a remedy request ──────────────────────────────────────────
+    [HttpDelete("admin/remedies/{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> DeleteRemedy(int id)
+    {
+        var row = await _db.RemedyRequests.FindAsync(id);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
+        _db.RemedyRequests.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { id }, "Deleted."));
+    }
+
+    // ── Admin: delete a saved querent chart ─────────────────────────────────────
+    [HttpDelete("admin/charts/{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> DeleteChart(int id)
+    {
+        var row = await _db.QuerentCharts.FindAsync(id);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
+        _db.QuerentCharts.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { id }, "Deleted."));
+    }
+
+    // Styled reading/reply email (purple / gold). Body is admin-authored text.
+    private static string ReadingReplyEmail(string name, string body)
+    {
+        string greeting = string.IsNullOrWhiteSpace(name) ? "မင်္ဂလာပါ" : $"မင်္ဂလာပါ {System.Net.WebUtility.HtmlEncode(name)}";
+        string safeBody = System.Net.WebUtility.HtmlEncode(body).Replace("\n", "<br>");
+        const string tpl = """
+<!doctype html><html><body style="margin:0;background:#0b0a14;font-family:Segoe UI,Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;padding:32px 20px">
+    <div style="background:linear-gradient(135deg,#14121f,#1b1830);border:1px solid rgba(168,85,247,.35);border-radius:18px;padding:34px 28px;box-shadow:0 0 60px -20px rgba(168,85,247,.5)">
+      <div style="font:600 12px 'Segoe UI';letter-spacing:.3em;text-transform:uppercase;color:#eab308;margin-bottom:14px">Vedin &middot; Sayar Bhone Min Thike Din</div>
+      <p style="margin:0 0 14px;color:#f2ede0;font-size:15px">{{GREETING}},</p>
+      <div style="color:#cfc7b6;font-size:14px;line-height:1.95">{{BODY}}</div>
+      <p style="margin:22px 0 0;color:#726a5c;font-size:12px;line-height:1.8">ဆရာ ဘုန်းမင်းသိုက်ဒင် &middot; Vedin Vedic Astrology</p>
+    </div>
+  </div>
+</body></html>
+""";
+        return tpl.Replace("{{GREETING}}", greeting).Replace("{{BODY}}", safeBody);
     }
 
     // ── Admin: saved querent charts (decrypted) ─────────────────────────────────

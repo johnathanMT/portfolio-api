@@ -11,5 +11,7 @@ public class RemedyRequest
     public string Message { get; set; } = string.Empty;    // encrypted
     public string BirthInfo { get; set; } = string.Empty;  // encrypted "date time"
     public bool Handled { get; set; }
+    public string Status { get; set; } = "Pending";        // Pending | InProgress | Completed | Cancelled
+    public string Notes { get; set; } = string.Empty;      // internal admin notes (plaintext)
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

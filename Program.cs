@@ -88,6 +88,7 @@ builder.Services.AddScoped<IVisitorService, VisitorService>();
 builder.Services.AddScoped<IAstrologyService, AstrologyService>();
 builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddMemoryCache();   // resend-confirmation anti-spam throttling
 
 // ─────────────────────────────────────────────────────────────
 // 3. FLUENT VALIDATION
@@ -459,6 +460,15 @@ CREATE TABLE IF NOT EXISTS CustomerCharts (
   CreatedAt DATETIME(6) NOT NULL,
   KEY ix_customerchart_owner (CustomerId)
 ) CHARACTER SET=utf8mb4;");
+        // Additive CRM columns on RemedyRequests (idempotent — ignore "column exists").
+        foreach (var alter in new[]
+        {
+            "ALTER TABLE RemedyRequests ADD COLUMN Status VARCHAR(20) NOT NULL DEFAULT 'Pending'",
+            "ALTER TABLE RemedyRequests ADD COLUMN Notes TEXT NULL",
+        })
+        {
+            try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }
+        }
         logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts).");
     }
     catch (Exception ex)

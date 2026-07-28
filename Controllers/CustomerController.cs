@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using PortfolioApi.Common;
 using PortfolioApi.Data;
@@ -31,14 +32,59 @@ public class CustomerController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IEmailService _email;
     private readonly IConfiguration _cfg;
+    private readonly IMemoryCache _cache;
     private readonly string _encKey;
 
-    public CustomerController(AppDbContext db, IEmailService email, IConfiguration cfg)
+    public CustomerController(AppDbContext db, IEmailService email, IConfiguration cfg, IMemoryCache cache)
     {
         _db = db;
         _email = email;
         _cfg = cfg;
+        _cache = cache;
         _encKey = cfg["Astrology:EncryptionKey"] ?? cfg["Jwt:Key"] ?? "astrology-fallback-key-set-in-env";
+    }
+
+    // ── Resend confirmation (anti-spam: 60s cooldown + 3/hour, anti-enumeration) ─
+    [HttpPost("resend-confirmation")]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> ResendConfirmation([FromBody] ResendDto dto)
+    {
+        const string generic = "If an unverified account exists with this email, a confirmation link has been sent.";
+        var email = (dto.Email ?? string.Empty).ToLowerInvariant().Trim();
+        string ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        int Count(string key) => _cache.TryGetValue(key, out int c) ? c : 0;
+        void Bump(string key) => _cache.Set(key, Count(key) + 1, TimeSpan.FromHours(1));
+
+        bool valid = email.Length is > 3 and < 200 && email.Contains('@');
+        bool throttled =
+            _cache.TryGetValue($"rc:cool:e:{email}", out _) ||
+            _cache.TryGetValue($"rc:cool:i:{ip}", out _) ||
+            Count($"rc:cnt:e:{email}") >= 3 ||
+            Count($"rc:cnt:i:{ip}") >= 3;
+
+        if (valid && !throttled)
+        {
+            var cust = await _db.Customers.FirstOrDefaultAsync(c => c.Email == email);
+            if (cust is not null && !cust.EmailConfirmed)
+            {
+                string token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");   // 64 hex chars
+                cust.VerifyToken = token;                                                       // invalidates the old one
+                cust.VerifyExpiry = DateTime.UtcNow.AddHours(48);
+                cust.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+
+                string apiBase = (_cfg["App:ApiBase"] ?? "https://myweb-zqv1.onrender.com").TrimEnd('/');
+                await _email.SendAsync(email, "Vedin — သင့်အကောင့်ကို အတည်ပြုပါ", VerifyEmailHtml($"{apiBase}/api/customer/verify-email?token={token}"));
+            }
+            // Apply throttle counters whether or not the account exists (constant behaviour).
+            _cache.Set($"rc:cool:e:{email}", true, TimeSpan.FromSeconds(60));
+            _cache.Set($"rc:cool:i:{ip}", true, TimeSpan.FromSeconds(60));
+            Bump($"rc:cnt:e:{email}");
+            Bump($"rc:cnt:i:{ip}");
+        }
+
+        return Ok(ApiResponse<object>.Ok(new { }, generic));
     }
 
     // ── Sign up (email only) + send confirmation email ──────────────────────────
