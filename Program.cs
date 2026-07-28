@@ -407,6 +407,34 @@ using (var scope = app.Services.CreateScope())
         logger.LogError(ex, "Failed to apply migrations. Check connection string / Aiven IP access. " +
             "Starting anyway so /health is reachable; DB-backed endpoints will fail until the DB recovers.");
     }
+
+    // Astrology tables live outside EF migrations — ensure they exist idempotently
+    // (encrypted-at-rest PII: birth details & contacts). Safe to run every boot.
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS RemedyRequests (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Name TEXT NULL, Contact TEXT NULL, Area VARCHAR(120) NULL,
+  Message TEXT NULL, BirthInfo TEXT NULL,
+  Handled TINYINT(1) NOT NULL DEFAULT 0,
+  CreatedAt DATETIME(6) NOT NULL
+) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS QuerentCharts (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Name TEXT NULL, Gender VARCHAR(20) NULL,
+  BirthDate TEXT NULL, BirthTime TEXT NULL, TimeZone VARCHAR(80) NULL,
+  Location TEXT NULL, NayNan INT NOT NULL DEFAULT 0,
+  Consent TINYINT(1) NOT NULL DEFAULT 0,
+  CreatedAt DATETIME(6) NOT NULL
+) CHARACTER SET=utf8mb4;");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts).");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Could not ensure astrology tables (non-fatal).");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────

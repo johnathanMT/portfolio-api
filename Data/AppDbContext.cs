@@ -15,6 +15,8 @@ public class AppDbContext : DbContext
     public DbSet<MemoryTag>       MemoryTags       { get; set; }
     public DbSet<FarewellRsvp>    FarewellRsvps    { get; set; }
     public DbSet<Poem>            Poems            { get; set; }
+    public DbSet<RemedyRequest>   RemedyRequests   { get; set; }
+    public DbSet<QuerentChart>    QuerentCharts    { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
