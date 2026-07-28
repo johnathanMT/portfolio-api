@@ -100,6 +100,14 @@ public class DashaPeriod
     public double Years { get; set; }
 }
 
+/// <summary>Ashtakavarga — per-sign benefic points (bindus). Bav = each planet's
+/// Bhinnashtakavarga (12 signs); Sav = Sarvashtakavarga (sum across 7 planets).</summary>
+public class AshtakavargaData
+{
+    public Dictionary<string, int[]> Bav { get; set; } = new();   // planet → 12 signs
+    public int[] Sav { get; set; } = new int[12];                 // 12 signs, total 337
+}
+
 /// <summary>A transiting planet's position for a given year (gochara).</summary>
 public class TransitPos
 {
@@ -143,5 +151,6 @@ public class BirthChartData
     public List<Yoga> Yogas { get; set; } = new();
     public List<AreaPrediction> Predictions { get; set; } = new();
     public List<YearForecast> Timeline { get; set; } = new();   // whole-life age → dasha/transit forecast
+    public AshtakavargaData Ashtakavarga { get; set; } = new();
     public ChartMeta Meta { get; set; } = new();
 }

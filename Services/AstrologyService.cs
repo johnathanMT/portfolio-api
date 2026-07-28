@@ -194,7 +194,8 @@ public class AstrologyService : IAstrologyService
             string bhuktiLord = bhukti?.Lord ?? mahaLord;
             string pratyantarLord = ActiveDasha(pratyantardashas)?.Lord ?? bhuktiLord;
             int moonSign = (int)(moonLon / 30.0);
-            var timeline = ComputeLifeTimeline(swe, iflag, utc, ascSign, moonSign, dashas);
+            var ashtaka = ComputeAshtakavarga(planets, ascSign);
+            var timeline = ComputeLifeTimeline(swe, iflag, utc, ascSign, moonSign, dashas, ashtaka.Sav);
 
             var data = new BirthChartData
             {
@@ -206,6 +207,7 @@ public class AstrologyService : IAstrologyService
                 Yogas = DetectYogas(planets),
                 Predictions = ComputePredictions(planets, ascSign, mahaLord, bhuktiLord, pratyantarLord),
                 Timeline = timeline,
+                Ashtakavarga = ashtaka,
                 Meta = new ChartMeta
                 {
                     Ayanamsa = ayaName,
@@ -518,12 +520,74 @@ public class AstrologyService : IAstrologyService
         return list;
     }
 
+    // ── Ashtakavarga (Parashari bindu tables) ───────────────────────────────────
+    // For planet P, from each reference (7 grahas + Asc), the houses that earn a bindu.
+    private static readonly string[] AvRefs = { "Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Asc" };
+    private static readonly Dictionary<string, Dictionary<string, int[]>> AshtakaTables = new()
+    {
+        ["Sun"] = new() {
+            ["Sun"] = new[]{1,2,4,7,8,9,10,11}, ["Moon"] = new[]{3,6,10,11}, ["Mars"] = new[]{1,2,4,7,8,9,10,11},
+            ["Mercury"] = new[]{3,5,6,9,10,11,12}, ["Jupiter"] = new[]{5,6,9,11}, ["Venus"] = new[]{6,7,12},
+            ["Saturn"] = new[]{1,2,4,7,8,9,10,11}, ["Asc"] = new[]{3,4,6,10,11,12} },
+        ["Moon"] = new() {
+            ["Sun"] = new[]{3,6,7,8,10,11}, ["Moon"] = new[]{1,3,6,7,10,11}, ["Mars"] = new[]{2,3,5,6,9,10,11},
+            ["Mercury"] = new[]{1,3,4,5,7,8,10,11}, ["Jupiter"] = new[]{1,4,7,8,10,11,12}, ["Venus"] = new[]{3,4,5,7,9,10,11},
+            ["Saturn"] = new[]{3,5,6,11}, ["Asc"] = new[]{3,6,10,11} },
+        ["Mars"] = new() {
+            ["Sun"] = new[]{3,5,6,10,11}, ["Moon"] = new[]{3,6,11}, ["Mars"] = new[]{1,2,4,7,8,10,11},
+            ["Mercury"] = new[]{3,5,6,11}, ["Jupiter"] = new[]{6,10,11,12}, ["Venus"] = new[]{6,8,11,12},
+            ["Saturn"] = new[]{1,4,7,8,9,10,11}, ["Asc"] = new[]{1,3,6,10,11} },
+        ["Mercury"] = new() {
+            ["Sun"] = new[]{5,6,9,11,12}, ["Moon"] = new[]{2,4,6,8,10,11}, ["Mars"] = new[]{1,2,4,7,8,9,10,11},
+            ["Mercury"] = new[]{1,3,5,6,9,10,11,12}, ["Jupiter"] = new[]{6,8,11,12}, ["Venus"] = new[]{1,2,3,4,5,8,9,11},
+            ["Saturn"] = new[]{1,2,4,7,8,9,10,11}, ["Asc"] = new[]{1,2,4,6,8,10,11} },
+        ["Jupiter"] = new() {
+            ["Sun"] = new[]{1,2,3,4,7,8,9,10,11}, ["Moon"] = new[]{2,5,7,9,11}, ["Mars"] = new[]{1,2,4,7,8,10,11},
+            ["Mercury"] = new[]{1,2,4,5,6,9,10,11}, ["Jupiter"] = new[]{1,2,3,4,7,8,10,11}, ["Venus"] = new[]{2,5,6,9,10,11},
+            ["Saturn"] = new[]{3,5,6,12}, ["Asc"] = new[]{1,2,4,5,6,7,9,10,11} },
+        ["Venus"] = new() {
+            ["Sun"] = new[]{8,11,12}, ["Moon"] = new[]{1,2,3,4,5,8,9,11,12}, ["Mars"] = new[]{3,5,6,9,11,12},
+            ["Mercury"] = new[]{3,5,6,9,11}, ["Jupiter"] = new[]{5,8,9,10,11}, ["Venus"] = new[]{1,2,3,4,5,8,9,10,11},
+            ["Saturn"] = new[]{3,4,5,8,9,10,11}, ["Asc"] = new[]{1,2,3,4,5,8,9,11} },
+        ["Saturn"] = new() {
+            ["Sun"] = new[]{1,2,4,7,8,10,11}, ["Moon"] = new[]{3,6,11}, ["Mars"] = new[]{3,5,6,10,11,12},
+            ["Mercury"] = new[]{6,8,9,10,11,12}, ["Jupiter"] = new[]{5,6,11,12}, ["Venus"] = new[]{6,11,12},
+            ["Saturn"] = new[]{3,5,6,11}, ["Asc"] = new[]{1,3,4,6,10,11} },
+    };
+
+    private static AshtakavargaData ComputeAshtakavarga(List<PlanetPosition> planets, int ascSign)
+    {
+        var by = planets.ToDictionary(p => p.Name);
+        int SignOf(string c) => c == "Asc" ? ascSign : by[c].Sign;
+        var data = new AshtakavargaData();
+        var sav = new int[12];
+        foreach (var planet in new[] { "Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn" })
+        {
+            var tbl = AshtakaTables[planet];
+            var bav = new int[12];
+            for (int s = 0; s < 12; s++)
+            {
+                int count = 0;
+                foreach (var c in AvRefs)
+                {
+                    int house = ((s - SignOf(c) + 12) % 12) + 1;
+                    if (Array.IndexOf(tbl[c], house) >= 0) count++;
+                }
+                bav[s] = count;
+                sav[s] += count;
+            }
+            data.Bav[planet] = bav;
+        }
+        data.Sav = sav;
+        return data;
+    }
+
     // ── Life timeline (gochara / transits) ──────────────────────────────────────
     private static readonly string[] TransitBodies = { "Jupiter", "Saturn", "Rahu" };
     private static readonly HashSet<string> BeneficLords = new() { "Jupiter", "Venus", "Mercury", "Moon" };
 
     // Whole-life age → dasha/bhukti + Jupiter/Saturn/Rahu gochara + Sade Sati + stars.
-    private static List<YearForecast> ComputeLifeTimeline(SwissEph swe, int iflag, DateTime birthUtc, int ascSign, int moonSign, List<DashaPeriod> dashas)
+    private static List<YearForecast> ComputeLifeTimeline(SwissEph swe, int iflag, DateTime birthUtc, int ascSign, int moonSign, List<DashaPeriod> dashas, int[] sav)
     {
         var bhuktis = BuildFullBhuktis(dashas);
         var list = new List<YearForecast>();
@@ -541,7 +605,7 @@ public class AstrologyService : IAstrologyService
             yf.Maha = b.Maha ?? string.Empty;
             yf.Bhukti = b.Bhukti ?? string.Empty;
 
-            int satHouseMoon = 1, jupHouseMoon = 1, jupHouseLagna = 1;
+            int satHouseMoon = 1, jupHouseMoon = 1, jupHouseLagna = 1, jupSign = 0, satSign = 0;
             foreach (var body in TransitBodies)
             {
                 int id = body switch { "Jupiter" => SwissEph.SE_JUPITER, "Saturn" => SwissEph.SE_SATURN, _ => SwissEph.SE_MEAN_NODE };
@@ -552,8 +616,8 @@ public class AstrologyService : IAstrologyService
                 int hL = ((sign - ascSign + 12) % 12) + 1;
                 int hM = ((sign - moonSign + 12) % 12) + 1;
                 yf.Transits.Add(new TransitPos { Planet = body, Sign = sign, SignName = Signs[sign], HouseFromLagna = hL, HouseFromMoon = hM });
-                if (body == "Saturn") satHouseMoon = hM;
-                if (body == "Jupiter") { jupHouseMoon = hM; jupHouseLagna = hL; }
+                if (body == "Saturn") { satHouseMoon = hM; satSign = sign; }
+                if (body == "Jupiter") { jupHouseMoon = hM; jupHouseLagna = hL; jupSign = sign; }
                 if (body == "Rahu" && (hM == 1 || hL == 1))
                     yf.Notes.Add(new TransitNote { Tone = "info", Code = "rahuTransit", Planet = "Rahu", House = hL });
             }
@@ -573,6 +637,12 @@ public class AstrologyService : IAstrologyService
             score += BeneficLords.Contains(yf.Bhukti) ? 1 : -1;
             if (jupHouseMoon is 1 or 4 or 5 or 7 or 9 or 10 or 11) score += 1;
             if (yf.SadeSati) score -= 2;
+            // Ashtakavarga: transit through a high-SAV sign is stronger, low-SAV weaker.
+            if (sav is { Length: 12 })
+            {
+                if (sav[jupSign] >= 30) score += 1;
+                if (sav[satSign] <= 24) score -= 1;
+            }
             score = Math.Clamp(score, 2, 10);
             yf.Stars = Math.Clamp((int)Math.Round(score / 2.0), 1, 5);
 
