@@ -1,0 +1,342 @@
+using SwissEphNet;
+using PortfolioApi.Common;
+using PortfolioApi.DTOs.Astrology;
+using PortfolioApi.Interfaces;
+
+namespace PortfolioApi.Services;
+
+/// <summary>
+/// Vedic (sidereal) Rasi-chart calculator built on Swiss Ephemeris (SwissEphNet).
+///
+///  • Uses the built-in MOSHIER model (SEFLG_MOSEPH) → NO ephemeris data files
+///    need to be shipped/deployed. Accuracy is well within astrological needs.
+///  • Sidereal zodiac with the LAHIRI ayanamsa (Jyotish standard).
+///  • WHOLE-SIGN houses (the classical Jyotish default): the sign holding the
+///    Ascendant is the 1st house, and each subsequent sign is the next house.
+///  • Rahu = mean lunar node; Ketu = 180° opposite. Nodes are always retrograde.
+///
+/// The calculation is a PURE function of the birth details — no DB, deterministic,
+/// and trivially cacheable/unit-testable (compare against Jagannatha Hora, etc.).
+/// </summary>
+public class AstrologyService : IAstrologyService
+{
+    private static readonly string[] Signs =
+        { "Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces" };
+
+    private static readonly string[] SignsSa =
+        { "Mesha","Vrishabha","Mithuna","Karka","Simha","Kanya","Tula","Vrishchika","Dhanu","Makara","Kumbha","Meena" };
+
+    private static readonly string[] Nakshatras =
+    {
+        "Ashwini","Bharani","Krittika","Rohini","Mrigashira","Ardra","Punarvasu","Pushya","Ashlesha",
+        "Magha","Purva Phalguni","Uttara Phalguni","Hasta","Chitra","Swati","Vishakha","Anuradha","Jyeshtha",
+        "Mula","Purva Ashadha","Uttara Ashadha","Shravana","Dhanishta","Shatabhisha","Purva Bhadrapada","Uttara Bhadrapada","Revati"
+    };
+
+    // Graha id (Swiss Eph) → display name, in traditional order.
+    private static readonly (int Id, string Name)[] Grahas =
+    {
+        (SwissEph.SE_SUN,     "Sun"),
+        (SwissEph.SE_MOON,    "Moon"),
+        (SwissEph.SE_MARS,    "Mars"),
+        (SwissEph.SE_MERCURY, "Mercury"),
+        (SwissEph.SE_JUPITER, "Jupiter"),
+        (SwissEph.SE_VENUS,   "Venus"),
+        (SwissEph.SE_SATURN,  "Saturn"),
+    };
+
+    // Dignity per graha (sign index 0=Aries): exaltation, debilitation, own sign(s).
+    private static readonly Dictionary<string, (int Exalt, int Debil, int[] Own)> Dignities = new()
+    {
+        ["Sun"]     = (0, 6,  new[] { 4 }),
+        ["Moon"]    = (1, 7,  new[] { 3 }),
+        ["Mars"]    = (9, 3,  new[] { 0, 7 }),
+        ["Mercury"] = (5, 11, new[] { 2, 5 }),
+        ["Jupiter"] = (3, 9,  new[] { 8, 11 }),
+        ["Venus"]   = (11, 5, new[] { 1, 6 }),
+        ["Saturn"]  = (6, 0,  new[] { 9, 10 }),
+    };
+
+    // Vimshottari dasha sequence: (lord, full period in years). Total = 120 years.
+    private static readonly (string Lord, int Years)[] Vimshottari =
+    {
+        ("Ketu", 7), ("Venus", 20), ("Sun", 6), ("Moon", 10), ("Mars", 7),
+        ("Rahu", 18), ("Jupiter", 16), ("Saturn", 19), ("Mercury", 17),
+    };
+
+    // Graha drishti (aspects) — every planet aspects the 7th; specials add more.
+    private static readonly Dictionary<string, int[]> AspectHouses = new()
+    {
+        ["Sun"] = new[] { 7 }, ["Moon"] = new[] { 7 }, ["Mercury"] = new[] { 7 }, ["Venus"] = new[] { 7 },
+        ["Mars"] = new[] { 4, 7, 8 }, ["Jupiter"] = new[] { 5, 7, 9 }, ["Saturn"] = new[] { 3, 7, 10 },
+        ["Rahu"] = new[] { 5, 7, 9 }, ["Ketu"] = new[] { 5, 7, 9 },
+    };
+
+    // Deep-exaltation longitudes (for Uccha Bala). Debilitation point = +180°.
+    private static readonly Dictionary<string, double> ExaltPoint = new()
+    {
+        ["Sun"] = 10, ["Moon"] = 33, ["Mars"] = 298, ["Mercury"] = 165, ["Jupiter"] = 95, ["Venus"] = 357, ["Saturn"] = 200,
+    };
+
+    // Naisargika (natural) bala in virupas, out of 60.
+    private static readonly Dictionary<string, double> Naisargika = new()
+    {
+        ["Sun"] = 60.0, ["Moon"] = 51.43, ["Venus"] = 42.86, ["Jupiter"] = 34.29, ["Mercury"] = 25.71, ["Mars"] = 17.14, ["Saturn"] = 8.57,
+    };
+
+    // Dig Bala — ideal direction as an offset (°) from the Lagna: 1st(0), 4th(90),
+    // 7th(180), 10th(270); the planet is powerless 180° away.
+    private static readonly Dictionary<string, double> DigIdeal = new()
+    {
+        ["Jupiter"] = 0, ["Mercury"] = 0, ["Sun"] = 270, ["Mars"] = 270, ["Moon"] = 90, ["Venus"] = 90, ["Saturn"] = 180,
+    };
+
+    public ApiResponse<BirthChartData> ComputeRasiChart(BirthChartRequest req)
+    {
+        // 1. Local birth time → UTC. IANA tz ids resolve historical DST on
+        //    Linux/.NET 8 (Render). Wrong tz is the #1 source of chart errors.
+        DateTime utc;
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(req.TimeZone);
+            var local = new DateTime(req.Year, req.Month, req.Day, req.Hour, req.Minute, req.Second, DateTimeKind.Unspecified);
+            utc = TimeZoneInfo.ConvertTimeToUtc(local, tz);
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<BirthChartData>.Fail($"Invalid date, time, or timezone: {ex.Message}", 400);
+        }
+
+        var swe = new SwissEph();
+        try
+        {
+            // Sidereal zodiac, Lahiri ayanamsa.
+            swe.swe_set_sid_mode(SwissEph.SE_SIDM_LAHIRI, 0, 0);
+
+            double hourUt = utc.Hour + utc.Minute / 60.0 + utc.Second / 3600.0;
+            double jd = swe.swe_julday(utc.Year, utc.Month, utc.Day, hourUt, SwissEph.SE_GREG_CAL);
+
+            // Moshier model → no external ephemeris files required.
+            int iflag = SwissEph.SEFLG_MOSEPH | SwissEph.SEFLG_SIDEREAL | SwissEph.SEFLG_SPEED;
+
+            // Ascendant / Lagna via Whole-Sign houses ('W').
+            var cusps = new double[13];
+            var ascmc = new double[10];
+            swe.swe_houses_ex(jd, SwissEph.SEFLG_SIDEREAL, req.Latitude, req.Longitude, 'W', cusps, ascmc);
+            double ascLon = Norm360(ascmc[0]);
+            int ascSign = (int)(ascLon / 30.0);
+
+            var planets = new List<PlanetPosition>();
+            string serr = string.Empty;
+            double moonLon = 0;
+
+            foreach (var (id, name) in Grahas)
+            {
+                var xx = new double[6];
+                int ret = swe.swe_calc_ut(jd, id, iflag, xx, ref serr);
+                if (ret < 0)
+                    return ApiResponse<BirthChartData>.Fail($"Ephemeris error for {name}: {serr}", 500);
+                double plon = Norm360(xx[0]);
+                if (name == "Moon") moonLon = plon;
+                planets.Add(BuildPlanet(name, plon, xx[3] < 0, ascSign, ascLon));
+            }
+
+            // Rahu (mean node) + Ketu (180° opposite). Nodes are always retrograde.
+            var xr = new double[6];
+            swe.swe_calc_ut(jd, SwissEph.SE_MEAN_NODE, iflag, xr, ref serr);
+            double rahu = Norm360(xr[0]);
+            planets.Add(BuildPlanet("Rahu", rahu, true, ascSign, ascLon));
+            planets.Add(BuildPlanet("Ketu", Norm360(rahu + 180.0), true, ascSign, ascLon));
+
+            // Second pass: graha drishti (needs every planet's sign in place first).
+            FillAspects(planets, ascSign);
+
+            var data = new BirthChartData
+            {
+                Ascendant = BuildAscendant(ascLon),
+                Planets = planets,
+                Dashas = ComputeVimshottari(utc, moonLon),
+                Meta = new ChartMeta
+                {
+                    Ayanamsa = "Lahiri",
+                    HouseSystem = "Whole Sign",
+                    JulianDayUt = Math.Round(jd, 6),
+                    UtcIso = utc.ToString("yyyy-MM-ddTHH:mm:ss'Z'"),
+                    Latitude = req.Latitude,
+                    Longitude = req.Longitude,
+                },
+            };
+            return ApiResponse<BirthChartData>.Ok(data, "Chart computed.");
+        }
+        finally
+        {
+            swe.swe_close();
+        }
+    }
+
+    private static PlanetPosition BuildPlanet(string name, double lon, bool retro, int ascSign, double ascLon)
+    {
+        int sign = (int)(lon / 30.0);
+        double nakSize = 360.0 / 27.0;               // 13°20'
+        int nak = (int)(lon / nakSize);
+        int pada = (int)((lon - nak * nakSize) / (nakSize / 4.0)) + 1;
+        int house = ((sign - ascSign + 12) % 12) + 1; // whole-sign
+        int navamsa = VargaSign(lon, 9);
+        return new PlanetPosition
+        {
+            Name = name,
+            Longitude = Math.Round(lon, 4),
+            Sign = sign,
+            SignName = Signs[sign],
+            SignNameSa = SignsSa[sign],
+            DegreeInSign = Math.Round(lon - sign * 30.0, 4),
+            Nakshatra = nak,
+            NakshatraName = Nakshatras[nak],
+            Pada = pada,
+            House = house,
+            Retrograde = retro,
+            Dignity = DignityFor(name, sign),
+            NavamsaSign = navamsa,
+            NavamsaSignName = Signs[navamsa],
+            Vargas = new Dictionary<string, int>
+            {
+                ["D2"] = VargaSign(lon, 2),
+                ["D3"] = VargaSign(lon, 3),
+                ["D7"] = VargaSign(lon, 7),
+                ["D9"] = navamsa,
+                ["D10"] = VargaSign(lon, 10),
+                ["D12"] = VargaSign(lon, 12),
+            },
+            Strength = ComputeStrength(name, lon, ascLon),
+        };
+    }
+
+    private static AscendantInfo BuildAscendant(double lon)
+    {
+        int sign = (int)(lon / 30.0);
+        double nakSize = 360.0 / 27.0;
+        int nak = (int)(lon / nakSize);
+        int pada = (int)((lon - nak * nakSize) / (nakSize / 4.0)) + 1;
+        int navamsa = VargaSign(lon, 9);
+        return new AscendantInfo
+        {
+            Longitude = Math.Round(lon, 4),
+            Sign = sign,
+            SignName = Signs[sign],
+            SignNameSa = SignsSa[sign],
+            DegreeInSign = Math.Round(lon - sign * 30.0, 4),
+            Nakshatra = nak,
+            NakshatraName = Nakshatras[nak],
+            Pada = pada,
+            NavamsaSign = navamsa,
+            NavamsaSignName = Signs[navamsa],
+        };
+    }
+
+    private static string DignityFor(string name, int sign)
+    {
+        if (!Dignities.TryGetValue(name, out var d)) return "-";
+        if (sign == d.Exalt) return "Exalted";
+        if (sign == d.Debil) return "Debilitated";
+        if (Array.IndexOf(d.Own, sign) >= 0) return "Own";
+        return "-";
+    }
+
+    // Vimshottari mahadasha timeline from the Moon's nakshatra at birth. The first
+    // period is partial (the BALANCE left of the ruling lord); the rest are full.
+    private static List<DashaPeriod> ComputeVimshottari(DateTime birthUtc, double moonLon)
+    {
+        double nakSize = 360.0 / 27.0;
+        int moonNak = (int)(moonLon / nakSize);
+        double fracTraversed = (moonLon - moonNak * nakSize) / nakSize;   // 0–1 within the nakshatra
+        int startIdx = moonNak % 9;
+
+        var periods = new List<DashaPeriod>();
+        var cursor = birthUtc;
+        double firstYears = Vimshottari[startIdx].Years * (1.0 - fracTraversed);
+
+        for (int i = 0; i <= 9; i++)   // starting partial + a full 9-lord cycle → covers a lifetime
+        {
+            var (lord, fullYears) = Vimshottari[(startIdx + i) % 9];
+            double years = i == 0 ? firstYears : fullYears;
+            var end = cursor.AddDays(years * 365.25);
+            periods.Add(new DashaPeriod
+            {
+                Lord = lord,
+                StartUtc = cursor.ToString("yyyy-MM-dd"),
+                EndUtc = end.ToString("yyyy-MM-dd"),
+                Years = Math.Round(years, 2),
+            });
+            cursor = end;
+        }
+        return periods;
+    }
+
+    // Divisional-chart (varga) sign for a sidereal longitude (Parashari rules).
+    private static int VargaSign(double lon, int varga)
+    {
+        int rasi = (int)(lon / 30.0);
+        double deg = lon - rasi * 30.0;
+        bool oddSign = rasi % 2 == 0;   // Aries, Gemini, … are the 1st/3rd/… ("odd") signs
+        switch (varga)
+        {
+            case 2:  // Hora — Leo(4)=Sun's hora, Cancer(3)=Moon's hora
+                bool firstHalf = deg < 15.0;
+                return oddSign ? (firstHalf ? 4 : 3) : (firstHalf ? 3 : 4);
+            case 3:  // Drekkana → same / 5th / 9th
+                return (rasi + (int)(deg / 10.0) * 4) % 12;
+            case 7:  // Saptamsa → odd sign: same, even sign: 7th
+                return ((oddSign ? rasi : (rasi + 6) % 12) + (int)(deg / (30.0 / 7.0))) % 12;
+            case 9:  // Navamsa (continuous 3°20' division)
+                return (int)(lon / (30.0 / 9.0)) % 12;
+            case 10: // Dasamsa → odd sign: same, even sign: 9th
+                return ((oddSign ? rasi : (rasi + 8) % 12) + (int)(deg / 3.0)) % 12;
+            case 12: // Dwadasamsa → same, + part
+                return (rasi + (int)(deg / 2.5)) % 12;
+            default:
+                return rasi;
+        }
+    }
+
+    // Graha drishti: fill each planet's aspected houses (1–12) + aspected planets.
+    private static void FillAspects(List<PlanetPosition> planets, int ascSign)
+    {
+        foreach (var p in planets)
+        {
+            var houses = AspectHouses.TryGetValue(p.Name, out var h) ? h : new[] { 7 };
+            var aspectedSigns = houses.Select(x => (p.Sign + x - 1) % 12).ToHashSet();
+            p.AspectsHouses = aspectedSigns.Select(s => ((s - ascSign + 12) % 12) + 1).OrderBy(x => x).ToArray();
+            p.AspectsPlanets = planets.Where(q => q.Name != p.Name && aspectedSigns.Contains(q.Sign)).Select(q => q.Name).ToArray();
+        }
+    }
+
+    // Partial Shadbala: Uccha (exaltation) + Dig (directional) + Naisargika (natural)
+    // bala. Full Shadbala also needs Kala, Cheshta and Drik bala — a later phase.
+    // Rahu/Ketu are not part of classical Shadbala → null.
+    private static PlanetStrength? ComputeStrength(string name, double lon, double ascLon)
+    {
+        if (!Naisargika.ContainsKey(name)) return null;
+
+        double debil = (ExaltPoint[name] + 180.0) % 360.0;
+        double du = Math.Abs(lon - debil); if (du > 180) du = 360 - du;
+        double uccha = du / 3.0;    // 0–60 virupas (max at exaltation)
+
+        double ideal = (ascLon + DigIdeal[name]) % 360.0;
+        double powerless = (ideal + 180.0) % 360.0;
+        double dd = Math.Abs(lon - powerless); if (dd > 180) dd = 360 - dd;
+        double dig = dd / 3.0;      // 0–60 virupas
+
+        double nais = Naisargika[name];
+        double total = uccha + dig + nais;
+        return new PlanetStrength
+        {
+            UcchaBala = Math.Round(uccha, 2),
+            DigBala = Math.Round(dig, 2),
+            NaisargikaBala = Math.Round(nais, 2),
+            TotalVirupas = Math.Round(total, 2),
+            TotalRupas = Math.Round(total / 60.0, 2),
+        };
+    }
+
+    private static double Norm360(double x) => ((x % 360.0) + 360.0) % 360.0;
+}

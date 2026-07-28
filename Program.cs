@@ -85,6 +85,7 @@ builder.Services.AddScoped<IPoemService, PoemService>();
 builder.Services.AddScoped<IMemoryService, MemoryService>();
 builder.Services.AddScoped<IFarewellService, FarewellService>();
 builder.Services.AddScoped<IVisitorService, VisitorService>();
+builder.Services.AddScoped<IAstrologyService, AstrologyService>();
 builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
 
 // ─────────────────────────────────────────────────────────────
