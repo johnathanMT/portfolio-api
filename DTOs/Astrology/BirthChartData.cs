@@ -14,6 +14,7 @@ public class PlanetPosition
     public int Pada { get; set; }                // 1–4
     public int House { get; set; }               // 1–12 (whole-sign from Ascendant)
     public bool Retrograde { get; set; }
+    public bool Combust { get; set; }            // asta — too close to the Sun
     public string Dignity { get; set; } = "-";   // Exalted / Debilitated / Own / -
 
     // ── Phase 3: vargas / aspects / strength ──

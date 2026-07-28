@@ -127,8 +127,22 @@ public class AstrologyService : IAstrologyService
         var swe = new SwissEph();
         try
         {
-            // Sidereal zodiac, Lahiri ayanamsa.
-            swe.swe_set_sid_mode(SwissEph.SE_SIDM_LAHIRI, 0, 0);
+            // Sidereal zodiac — selectable ayanamsa.
+            int sidMode = (req.Ayanamsa ?? "lahiri").ToLowerInvariant() switch
+            {
+                "raman" => SwissEph.SE_SIDM_RAMAN,
+                "kp" or "krishnamurti" => SwissEph.SE_SIDM_KRISHNAMURTI,
+                "truechitra" or "true_chitra" or "chitrapaksha" => SwissEph.SE_SIDM_TRUE_CITRA,
+                _ => SwissEph.SE_SIDM_LAHIRI,
+            };
+            swe.swe_set_sid_mode(sidMode, 0, 0);
+            string ayaName = sidMode switch
+            {
+                SwissEph.SE_SIDM_RAMAN => "Raman",
+                SwissEph.SE_SIDM_KRISHNAMURTI => "KP (Krishnamurti)",
+                SwissEph.SE_SIDM_TRUE_CITRA => "True Chitra",
+                _ => "Lahiri",
+            };
 
             double hourUt = utc.Hour + utc.Minute / 60.0 + utc.Second / 3600.0;
             double jd = swe.swe_julday(utc.Year, utc.Month, utc.Day, hourUt, SwissEph.SE_GREG_CAL);
@@ -165,6 +179,9 @@ public class AstrologyService : IAstrologyService
             planets.Add(BuildPlanet("Rahu", rahu, true, ascSign));
             planets.Add(BuildPlanet("Ketu", Norm360(rahu + 180.0), true, ascSign));
 
+            // Combustion (asta): planets too near the Sun.
+            MarkCombustion(planets);
+
             // Second pass: drishti, then strength (both need the full planet set).
             FillAspects(planets, ascSign);
             FillStrength(planets, ascLon);
@@ -187,7 +204,7 @@ public class AstrologyService : IAstrologyService
                 Timeline = timeline,
                 Meta = new ChartMeta
                 {
-                    Ayanamsa = "Lahiri",
+                    Ayanamsa = ayaName,
                     HouseSystem = "Whole Sign",
                     JulianDayUt = Math.Round(jd, 6),
                     UtcIso = utc.ToString("yyyy-MM-ddTHH:mm:ss'Z'"),
@@ -231,10 +248,15 @@ public class AstrologyService : IAstrologyService
             {
                 ["D2"] = VargaSign(lon, 2),
                 ["D3"] = VargaSign(lon, 3),
+                ["D4"] = VargaSign(lon, 4),
                 ["D7"] = VargaSign(lon, 7),
                 ["D9"] = navamsa,
                 ["D10"] = VargaSign(lon, 10),
                 ["D12"] = VargaSign(lon, 12),
+                ["D16"] = VargaSign(lon, 16),
+                ["D20"] = VargaSign(lon, 20),
+                ["D24"] = VargaSign(lon, 24),
+                ["D60"] = VargaSign(lon, 60),
             },
         };
     }
@@ -321,8 +343,42 @@ public class AstrologyService : IAstrologyService
                 return ((oddSign ? rasi : (rasi + 8) % 12) + (int)(deg / 3.0)) % 12;
             case 12: // Dwadasamsa → same, + part
                 return (rasi + (int)(deg / 2.5)) % 12;
+            case 4:  // Chaturthamsa → rasi, 4th, 7th, 10th (7°30' each)
+                return (rasi + (int)(deg / 7.5) * 3) % 12;
+            case 16: // Shodasamsa → movable:Aries, fixed:Leo, dual:Sagittarius
+            {
+                int s16 = rasi % 3 == 0 ? 0 : rasi % 3 == 1 ? 4 : 8;
+                return (s16 + (int)(deg / 1.875)) % 12;
+            }
+            case 20: // Vimsamsa → movable:Aries, fixed:Sagittarius, dual:Leo
+            {
+                int s20 = rasi % 3 == 0 ? 0 : rasi % 3 == 1 ? 8 : 4;
+                return (s20 + (int)(deg / 1.5)) % 12;
+            }
+            case 24: // Chaturvimsamsa → odd sign:Leo, even sign:Cancer
+            {
+                int s24 = oddSign ? 4 : 3;
+                return (s24 + (int)(deg / 1.25)) % 12;
+            }
+            case 60: // Shashtiamsa (0.5° each)
+                return (rasi + (int)(deg * 2.0)) % 12;
             default:
                 return rasi;
+        }
+    }
+
+    private static readonly Dictionary<string, double> CombustOrb = new()
+    { ["Moon"] = 12, ["Mars"] = 17, ["Mercury"] = 13, ["Jupiter"] = 11, ["Venus"] = 9, ["Saturn"] = 15 };
+
+    // Mark planets combust (asta) when within the Sun's orb.
+    private static void MarkCombustion(List<PlanetPosition> planets)
+    {
+        double sun = planets.First(p => p.Name == "Sun").Longitude;
+        foreach (var p in planets)
+        {
+            if (!CombustOrb.TryGetValue(p.Name, out var orb)) continue;
+            double d = Math.Abs(p.Longitude - sun); if (d > 180) d = 360 - d;
+            p.Combust = d < orb;
         }
     }
 
