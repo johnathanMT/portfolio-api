@@ -45,6 +45,25 @@ public class Yoga
     public string[] Planets { get; set; } = Array.Empty<string>();
 }
 
+/// <summary>One rule-based finding behind a prediction. The frontend maps the
+/// Code (+ Planet/House/Value) into localized EN/MM sentences.</summary>
+public class Finding
+{
+    public string Code { get; set; } = string.Empty;   // lordDignity | karakaDignity | occupant | dashaActive
+    public string Planet { get; set; } = string.Empty;
+    public int House { get; set; }
+    public string Value { get; set; } = string.Empty;  // Exalted | Debilitated | Own | Neutral | benefic | malefic | area
+}
+
+/// <summary>A per-life-area prediction: overall tone + score + the findings that produced it.</summary>
+public class AreaPrediction
+{
+    public string Area { get; set; } = string.Empty;   // love | career | education | social | health | wealth
+    public string Tone { get; set; } = "mixed";        // favorable | mixed | testing
+    public int Score { get; set; }
+    public List<Finding> Findings { get; set; } = new();
+}
+
 /// <summary>The Ascendant (Lagna) — first house cusp.</summary>
 public class AscendantInfo
 {
@@ -86,6 +105,8 @@ public class BirthChartData
     public AscendantInfo Ascendant { get; set; } = new();
     public List<PlanetPosition> Planets { get; set; } = new();
     public List<DashaPeriod> Dashas { get; set; } = new();
+    public List<DashaPeriod> Antardashas { get; set; } = new();   // bhuktis of the current mahadasha
     public List<Yoga> Yogas { get; set; } = new();
+    public List<AreaPrediction> Predictions { get; set; } = new();
     public ChartMeta Meta { get; set; } = new();
 }

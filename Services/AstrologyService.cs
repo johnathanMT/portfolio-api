@@ -96,6 +96,17 @@ public class AstrologyService : IAstrologyService
     private static readonly string[] SignLord =
         { "Mars", "Venus", "Mercury", "Moon", "Sun", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Saturn", "Jupiter" };
 
+    // Life-area → primary house + natural significators (karakas).
+    private static readonly (string Area, int House, string[] Karakas)[] AreaConfig =
+    {
+        ("love",      7,  new[] { "Venus" }),
+        ("career",    10, new[] { "Sun", "Saturn", "Mercury" }),
+        ("education", 5,  new[] { "Mercury", "Jupiter" }),
+        ("social",    11, new[] { "Mercury", "Venus" }),
+        ("health",    1,  new[] { "Sun", "Moon" }),
+        ("wealth",    2,  new[] { "Jupiter" }),
+    };
+
     public ApiResponse<BirthChartData> ComputeRasiChart(BirthChartRequest req)
     {
         // 1. Local birth time → UTC. IANA tz ids resolve historical DST on
@@ -156,13 +167,20 @@ public class AstrologyService : IAstrologyService
             // Second pass: drishti, then strength (both need the full planet set).
             FillAspects(planets, ascSign);
             FillStrength(planets, ascLon);
+            var dashas = ComputeVimshottari(utc, moonLon);
+            var maha = ActiveDasha(dashas);
+            var antardashas = maha != null ? ComputeAntardashas(maha) : new List<DashaPeriod>();
+            string mahaLord = maha?.Lord ?? "Sun";
+            string bhuktiLord = ActiveDasha(antardashas)?.Lord ?? mahaLord;
 
             var data = new BirthChartData
             {
                 Ascendant = BuildAscendant(ascLon),
                 Planets = planets,
-                Dashas = ComputeVimshottari(utc, moonLon),
+                Dashas = dashas,
+                Antardashas = antardashas,
                 Yogas = DetectYogas(planets),
+                Predictions = ComputePredictions(planets, ascSign, mahaLord, bhuktiLord),
                 Meta = new ChartMeta
                 {
                     Ayanamsa = "Lahiri",
@@ -406,6 +424,110 @@ public class AstrologyService : IAstrologyService
         }
 
         return yogas;
+    }
+
+    private static DashaPeriod? ActiveDasha(List<DashaPeriod> periods)
+    {
+        string today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        return periods.FirstOrDefault(d => string.CompareOrdinal(d.StartUtc, today) <= 0 && string.CompareOrdinal(today, d.EndUtc) < 0)
+               ?? periods.FirstOrDefault();
+    }
+
+    // Antardasha (bhukti) sub-periods within a mahadasha — proportional to its span,
+    // in Vimshottari order starting from the mahadasha lord.
+    private static List<DashaPeriod> ComputeAntardashas(DashaPeriod maha)
+    {
+        int start = Array.FindIndex(Vimshottari, v => v.Lord == maha.Lord);
+        if (start < 0) start = 0;
+        DateTime s = DateTime.Parse(maha.StartUtc), e = DateTime.Parse(maha.EndUtc);
+        double totalDays = (e - s).TotalDays;
+        var list = new List<DashaPeriod>();
+        var cursor = s;
+        for (int i = 0; i < 9; i++)
+        {
+            var (lord, yrs) = Vimshottari[(start + i) % 9];
+            double days = totalDays * yrs / 120.0;
+            var end = cursor.AddDays(days);
+            list.Add(new DashaPeriod { Lord = lord, StartUtc = cursor.ToString("yyyy-MM-dd"), EndUtc = end.ToString("yyyy-MM-dd"), Years = Math.Round(days / 365.25, 2) });
+            cursor = end;
+        }
+        return list;
+    }
+
+    private static readonly int[] Upachaya = { 1, 4, 5, 7, 9, 10 };   // kendra + trikona (strong)
+    private static readonly int[] Dusthana = { 6, 8, 12 };            // difficult houses
+
+    // Rule-based per-area predictions: house-lord dignity + placement, karaka
+    // dignity, occupants, aspects (drishti) and dasha/bhukti activation. Emits
+    // STRUCTURED findings; the frontend localizes them to EN / မြန်မာ sentences.
+    private static List<AreaPrediction> ComputePredictions(List<PlanetPosition> planets, int ascSign, string mahaLord, string bhuktiLord)
+    {
+        var by = planets.ToDictionary(p => p.Name);
+        double sunLon = by["Sun"].Longitude, moonLon = by["Moon"].Longitude;
+        bool moonWaxing = ((moonLon - sunLon + 360.0) % 360.0) < 180.0;
+        var result = new List<AreaPrediction>();
+
+        foreach (var (area, house, karakas) in AreaConfig)
+        {
+            int score = 50;
+            var findings = new List<Finding>();
+            string lord = SignLord[(ascSign + house - 1) % 12];
+
+            // 1. House-lord dignity.
+            string lordDig = by[lord].Dignity;
+            score += lordDig switch { "Exalted" => 20, "Own" => 12, "Debilitated" => -20, _ => 0 };
+            findings.Add(new Finding { Code = "lordDignity", Planet = lord, House = house, Value = lordDig });
+
+            // 2. House-lord placement (which house the lord occupies).
+            int lordHouse = by[lord].House;
+            if (Upachaya.Contains(lordHouse)) score += 8;
+            else if (Dusthana.Contains(lordHouse)) score -= 10;
+            findings.Add(new Finding { Code = "lordPlacement", Planet = lord, House = lordHouse, Value = Dusthana.Contains(lordHouse) ? "dusthana" : Upachaya.Contains(lordHouse) ? "strong" : "neutral" });
+
+            // 3. Karaka (significator) dignities.
+            foreach (var k in karakas)
+            {
+                string kd = by[k].Dignity;
+                if (kd is "Exalted" or "Own" or "Debilitated")
+                {
+                    score += kd switch { "Exalted" => 12, "Own" => 6, "Debilitated" => -12, _ => 0 };
+                    findings.Add(new Finding { Code = "karakaDignity", Planet = k, Value = kd });
+                }
+            }
+
+            // 4. Occupants of the house.
+            foreach (var o in planets.Where(p => p.House == house))
+            {
+                bool ben = IsBenefic(o.Name, moonWaxing);
+                score += ben ? 8 : -8;
+                findings.Add(new Finding { Code = "occupant", Planet = o.Name, House = house, Value = ben ? "benefic" : "malefic" });
+            }
+
+            // 5. Aspects on the house (graha drishti).
+            foreach (var q in planets.Where(p => p.AspectsHouses.Contains(house)))
+            {
+                bool ben = IsBenefic(q.Name, moonWaxing);
+                score += ben ? 6 : -6;
+                findings.Add(new Finding { Code = "aspectOnHouse", Planet = q.Name, House = house, Value = ben ? "benefic" : "malefic" });
+            }
+
+            // 6. Dasha / bhukti activation.
+            if (lord == mahaLord || karakas.Contains(mahaLord))
+            {
+                score += 10;
+                findings.Add(new Finding { Code = "dashaActive", Planet = mahaLord, Value = area });
+            }
+            if (bhuktiLord != mahaLord && (lord == bhuktiLord || karakas.Contains(bhuktiLord)))
+            {
+                score += 8;
+                findings.Add(new Finding { Code = "bhuktiActive", Planet = bhuktiLord, Value = area });
+            }
+
+            score = Math.Clamp(score, 0, 100);
+            string tone = score >= 65 ? "favorable" : score <= 40 ? "testing" : "mixed";
+            result.Add(new AreaPrediction { Area = area, Tone = tone, Score = score, Findings = findings });
+        }
+        return result;
     }
 
     private static double Norm360(double x) => ((x % 360.0) + 360.0) % 360.0;
