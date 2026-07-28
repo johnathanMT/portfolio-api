@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<RemedyRequest>   RemedyRequests   { get; set; }
     public DbSet<QuerentChart>    QuerentCharts    { get; set; }
     public DbSet<PdfRequest>      PdfRequests      { get; set; }
+    public DbSet<Customer>        Customers        { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

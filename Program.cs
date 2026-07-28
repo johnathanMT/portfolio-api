@@ -438,7 +438,18 @@ CREATE TABLE IF NOT EXISTS PdfRequests (
   DownloadToken VARCHAR(140) NULL, TokenExpiry DATETIME(6) NULL,
   CreatedAt DATETIME(6) NOT NULL
 ) CHARACTER SET=utf8mb4;");
-        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests).");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS Customers (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Email VARCHAR(200) NOT NULL,
+  Username VARCHAR(100) NOT NULL,
+  PasswordHash TEXT NOT NULL,
+  EmailConfirmed TINYINT(1) NOT NULL DEFAULT 0,
+  VerifyToken VARCHAR(140) NULL, VerifyExpiry DATETIME(6) NULL,
+  CreatedAt DATETIME(6) NOT NULL, UpdatedAt DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_customer_email (Email)
+) CHARACTER SET=utf8mb4;");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers).");
     }
     catch (Exception ex)
     {
