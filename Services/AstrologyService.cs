@@ -91,6 +91,11 @@ public class AstrologyService : IAstrologyService
         ["Jupiter"] = 0, ["Mercury"] = 0, ["Sun"] = 270, ["Mars"] = 270, ["Moon"] = 90, ["Venus"] = 90, ["Saturn"] = 180,
     };
 
+    private static readonly int[] Kendras = { 1, 4, 7, 10 };
+    // Sign lord (dispositor) by sign index 0=Aries … 11=Pisces.
+    private static readonly string[] SignLord =
+        { "Mars", "Venus", "Mercury", "Moon", "Sun", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Saturn", "Jupiter" };
+
     public ApiResponse<BirthChartData> ComputeRasiChart(BirthChartRequest req)
     {
         // 1. Local birth time → UTC. IANA tz ids resolve historical DST on
@@ -138,24 +143,26 @@ public class AstrologyService : IAstrologyService
                     return ApiResponse<BirthChartData>.Fail($"Ephemeris error for {name}: {serr}", 500);
                 double plon = Norm360(xx[0]);
                 if (name == "Moon") moonLon = plon;
-                planets.Add(BuildPlanet(name, plon, xx[3] < 0, ascSign, ascLon));
+                planets.Add(BuildPlanet(name, plon, xx[3] < 0, ascSign));
             }
 
             // Rahu (mean node) + Ketu (180° opposite). Nodes are always retrograde.
             var xr = new double[6];
             swe.swe_calc_ut(jd, SwissEph.SE_MEAN_NODE, iflag, xr, ref serr);
             double rahu = Norm360(xr[0]);
-            planets.Add(BuildPlanet("Rahu", rahu, true, ascSign, ascLon));
-            planets.Add(BuildPlanet("Ketu", Norm360(rahu + 180.0), true, ascSign, ascLon));
+            planets.Add(BuildPlanet("Rahu", rahu, true, ascSign));
+            planets.Add(BuildPlanet("Ketu", Norm360(rahu + 180.0), true, ascSign));
 
-            // Second pass: graha drishti (needs every planet's sign in place first).
+            // Second pass: drishti, then strength (both need the full planet set).
             FillAspects(planets, ascSign);
+            FillStrength(planets, ascLon);
 
             var data = new BirthChartData
             {
                 Ascendant = BuildAscendant(ascLon),
                 Planets = planets,
                 Dashas = ComputeVimshottari(utc, moonLon),
+                Yogas = DetectYogas(planets),
                 Meta = new ChartMeta
                 {
                     Ayanamsa = "Lahiri",
@@ -174,7 +181,7 @@ public class AstrologyService : IAstrologyService
         }
     }
 
-    private static PlanetPosition BuildPlanet(string name, double lon, bool retro, int ascSign, double ascLon)
+    private static PlanetPosition BuildPlanet(string name, double lon, bool retro, int ascSign)
     {
         int sign = (int)(lon / 30.0);
         double nakSize = 360.0 / 27.0;               // 13°20'
@@ -207,7 +214,6 @@ public class AstrologyService : IAstrologyService
                 ["D10"] = VargaSign(lon, 10),
                 ["D12"] = VargaSign(lon, 12),
             },
-            Strength = ComputeStrength(name, lon, ascLon),
         };
     }
 
@@ -310,32 +316,96 @@ public class AstrologyService : IAstrologyService
         }
     }
 
-    // Partial Shadbala: Uccha (exaltation) + Dig (directional) + Naisargika (natural)
-    // bala. Full Shadbala also needs Kala, Cheshta and Drik bala — a later phase.
-    // Rahu/Ketu are not part of classical Shadbala → null.
-    private static PlanetStrength? ComputeStrength(string name, double lon, double ascLon)
+    // Extended Shadbala (5 components): Sthana(Uccha) + Dig + Naisargika + Paksha
+    // (Kala) + Drik (aspectual). A fully-validated Parashari Shadbala also needs the
+    // remaining Kala sub-parts (Nathonnata/Ayana/…), Cheshta and Yuddha bala —
+    // a later phase. Rahu/Ketu are not part of classical Shadbala → null.
+    private static void FillStrength(List<PlanetPosition> planets, double ascLon)
     {
-        if (!Naisargika.ContainsKey(name)) return null;
+        double sunLon = planets.First(p => p.Name == "Sun").Longitude;
+        double moonLon = planets.First(p => p.Name == "Moon").Longitude;
+        double elong = Math.Abs(moonLon - sunLon); if (elong > 180) elong = 360 - elong;   // 0–180
+        bool moonWaxing = ((moonLon - sunLon + 360.0) % 360.0) < 180.0;
 
-        double debil = (ExaltPoint[name] + 180.0) % 360.0;
-        double du = Math.Abs(lon - debil); if (du > 180) du = 360 - du;
-        double uccha = du / 3.0;    // 0–60 virupas (max at exaltation)
-
-        double ideal = (ascLon + DigIdeal[name]) % 360.0;
-        double powerless = (ideal + 180.0) % 360.0;
-        double dd = Math.Abs(lon - powerless); if (dd > 180) dd = 360 - dd;
-        double dig = dd / 3.0;      // 0–60 virupas
-
-        double nais = Naisargika[name];
-        double total = uccha + dig + nais;
-        return new PlanetStrength
+        foreach (var p in planets)
         {
-            UcchaBala = Math.Round(uccha, 2),
-            DigBala = Math.Round(dig, 2),
-            NaisargikaBala = Math.Round(nais, 2),
-            TotalVirupas = Math.Round(total, 2),
-            TotalRupas = Math.Round(total / 60.0, 2),
-        };
+            if (!Naisargika.ContainsKey(p.Name)) { p.Strength = null; continue; }
+
+            double debil = (ExaltPoint[p.Name] + 180.0) % 360.0;
+            double du = Math.Abs(p.Longitude - debil); if (du > 180) du = 360 - du;
+            double uccha = du / 3.0;
+
+            double ideal = (ascLon + DigIdeal[p.Name]) % 360.0;
+            double powerless = (ideal + 180.0) % 360.0;
+            double dd = Math.Abs(p.Longitude - powerless); if (dd > 180) dd = 360 - dd;
+            double dig = dd / 3.0;
+
+            double nais = Naisargika[p.Name];
+
+            // Paksha bala: benefics gain on the waxing Moon, malefics on the waning.
+            double pakshaBase = elong / 180.0 * 60.0;
+            double paksha = IsBenefic(p.Name, moonWaxing) ? pakshaBase : 60.0 - pakshaBase;
+
+            // Drik bala: net (benefic − malefic) aspects received, scaled + clamped.
+            int ben = planets.Count(q => q.Name != p.Name && q.AspectsPlanets.Contains(p.Name) && IsBenefic(q.Name, moonWaxing));
+            int mal = planets.Count(q => q.Name != p.Name && q.AspectsPlanets.Contains(p.Name) && !IsBenefic(q.Name, moonWaxing));
+            double drik = Math.Clamp((ben - mal) * 15.0, -60.0, 60.0);
+
+            double total = uccha + dig + nais + paksha + drik;
+            p.Strength = new PlanetStrength
+            {
+                UcchaBala = Math.Round(uccha, 2),
+                DigBala = Math.Round(dig, 2),
+                NaisargikaBala = Math.Round(nais, 2),
+                PakshaBala = Math.Round(paksha, 2),
+                DrikBala = Math.Round(drik, 2),
+                TotalVirupas = Math.Round(total, 2),
+                TotalRupas = Math.Round(total / 60.0, 2),
+            };
+        }
+    }
+
+    // Benefics: Jupiter, Venus, Mercury, and the waxing (bright) Moon.
+    private static bool IsBenefic(string name, bool moonWaxing) =>
+        name is "Jupiter" or "Venus" or "Mercury" || (name == "Moon" && moonWaxing);
+
+    // Classic yogas from sign/house placements (whole-sign).
+    private static List<Yoga> DetectYogas(List<PlanetPosition> planets)
+    {
+        var by = planets.ToDictionary(p => p.Name);
+        int Sign(string n) => by[n].Sign;
+        int HouseFrom(int planetSign, int refSign) => ((planetSign - refSign + 12) % 12) + 1;
+        var yogas = new List<Yoga>();
+
+        if (Kendras.Contains(HouseFrom(Sign("Jupiter"), Sign("Moon"))))
+            yogas.Add(new Yoga { Name = "Gaja Kesari Yoga", Description = "Jupiter in a kendra (1/4/7/10) from the Moon — wisdom, virtue, prosperity.", Planets = new[] { "Jupiter", "Moon" } });
+
+        if (Sign("Sun") == Sign("Mercury"))
+            yogas.Add(new Yoga { Name = "Budha-Aditya Yoga", Description = "Sun and Mercury conjunct — intellect, communication, learning.", Planets = new[] { "Sun", "Mercury" } });
+
+        if (Sign("Moon") == Sign("Mars"))
+            yogas.Add(new Yoga { Name = "Chandra-Mangala Yoga", Description = "Moon and Mars conjunct — drive and wealth through enterprise.", Planets = new[] { "Moon", "Mars" } });
+
+        void Mahapurusha(string planet, string yoga)
+        {
+            var d = by[planet];
+            if (d.Dignity is "Own" or "Exalted" && Kendras.Contains(d.House))
+                yogas.Add(new Yoga { Name = yoga + " Yoga", Description = $"{planet} in own/exaltation in a kendra — a Pancha Mahapurusha yoga.", Planets = new[] { planet } });
+        }
+        Mahapurusha("Mars", "Ruchaka");
+        Mahapurusha("Mercury", "Bhadra");
+        Mahapurusha("Jupiter", "Hamsa");
+        Mahapurusha("Venus", "Malavya");
+        Mahapurusha("Saturn", "Sasa");
+
+        foreach (var p in planets.Where(p => p.Dignity == "Debilitated"))
+        {
+            string lord = SignLord[p.Sign];
+            if (by.TryGetValue(lord, out var l) && Kendras.Contains(l.House))
+                yogas.Add(new Yoga { Name = "Neecha Bhanga Raja Yoga", Description = $"{p.Name} is debilitated but its dispositor {lord} sits in a kendra — debilitation cancelled.", Planets = new[] { p.Name, lord } });
+        }
+
+        return yogas;
     }
 
     private static double Norm360(double x) => ((x % 360.0) + 360.0) % 360.0;

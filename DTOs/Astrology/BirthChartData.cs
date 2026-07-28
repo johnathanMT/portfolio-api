@@ -31,8 +31,18 @@ public class PlanetStrength
     public double UcchaBala { get; set; }
     public double DigBala { get; set; }
     public double NaisargikaBala { get; set; }
+    public double PakshaBala { get; set; }
+    public double DrikBala { get; set; }
     public double TotalVirupas { get; set; }
     public double TotalRupas { get; set; }
+}
+
+/// <summary>A detected yoga (planetary combination) with the planets involved.</summary>
+public class Yoga
+{
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string[] Planets { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>The Ascendant (Lagna) — first house cusp.</summary>
@@ -76,5 +86,6 @@ public class BirthChartData
     public AscendantInfo Ascendant { get; set; } = new();
     public List<PlanetPosition> Planets { get; set; } = new();
     public List<DashaPeriod> Dashas { get; set; } = new();
+    public List<Yoga> Yogas { get; set; } = new();
     public ChartMeta Meta { get; set; } = new();
 }
