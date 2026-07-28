@@ -222,6 +222,17 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit = 0;
     });
 
+    // Astrology chart: heavy compute per request (full natal chart + the 80-year
+    // transit timeline ≈ 250 ephemeris calls) → tighter per-IP cap to prevent
+    // CPU-exhaustion abuse of the public, unauthenticated endpoint.
+    options.AddFixedWindowLimiter("astrology", opt =>
+    {
+        opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("AstrologyWindowSeconds", 60));
+        opt.PermitLimit = rlSection.GetValue("AstrologyPermitLimit", 20);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 0;
+    });
+
     // Sanctuary memory writes: very tight token bucket (a human leaves ONE
     // memory, not hundreds) → stops AI/bot spam on POST /api/sanctuary/memories.
     options.AddTokenBucketLimiter("memory-write", opt =>

@@ -26,7 +26,7 @@ public class AstrologyController : ControllerBase
     ///       "timeZone":"Asia/Yangon", "latitude":16.8409, "longitude":96.1735 }
     /// </remarks>
     [HttpPost("chart")]
-    [EnableRateLimiting("general")]
+    [EnableRateLimiting("astrology")]
     [ProducesResponseType(typeof(ApiResponse<BirthChartData>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public IActionResult Chart([FromBody] BirthChartRequest req)

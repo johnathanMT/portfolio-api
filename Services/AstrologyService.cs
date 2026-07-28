@@ -105,6 +105,7 @@ public class AstrologyService : IAstrologyService
         ("social",    11, new[] { "Mercury", "Venus" }),
         ("health",    1,  new[] { "Sun", "Moon" }),
         ("wealth",    2,  new[] { "Jupiter" }),
+        ("property",  4,  new[] { "Moon", "Mars" }),
     };
 
     public ApiResponse<BirthChartData> ComputeRasiChart(BirthChartRequest req)
@@ -172,6 +173,8 @@ public class AstrologyService : IAstrologyService
             var antardashas = maha != null ? ComputeAntardashas(maha) : new List<DashaPeriod>();
             string mahaLord = maha?.Lord ?? "Sun";
             string bhuktiLord = ActiveDasha(antardashas)?.Lord ?? mahaLord;
+            int moonSign = (int)(moonLon / 30.0);
+            var timeline = ComputeLifeTimeline(swe, iflag, utc, ascSign, moonSign, dashas);
 
             var data = new BirthChartData
             {
@@ -181,6 +184,7 @@ public class AstrologyService : IAstrologyService
                 Antardashas = antardashas,
                 Yogas = DetectYogas(planets),
                 Predictions = ComputePredictions(planets, ascSign, mahaLord, bhuktiLord),
+                Timeline = timeline,
                 Meta = new ChartMeta
                 {
                     Ayanamsa = "Lahiri",
@@ -452,6 +456,79 @@ public class AstrologyService : IAstrologyService
             cursor = end;
         }
         return list;
+    }
+
+    // ── Life timeline (gochara / transits) ──────────────────────────────────────
+    private static readonly string[] TransitBodies = { "Jupiter", "Saturn", "Rahu" };
+    private static readonly HashSet<string> BeneficLords = new() { "Jupiter", "Venus", "Mercury", "Moon" };
+
+    // Whole-life age → dasha/bhukti + Jupiter/Saturn/Rahu gochara + Sade Sati + stars.
+    private static List<YearForecast> ComputeLifeTimeline(SwissEph swe, int iflag, DateTime birthUtc, int ascSign, int moonSign, List<DashaPeriod> dashas)
+    {
+        var bhuktis = BuildFullBhuktis(dashas);
+        var list = new List<YearForecast>();
+        string serr = string.Empty;
+
+        for (int age = 0; age <= 80; age++)
+        {
+            DateTime when = birthUtc.AddDays(age * 365.2425);
+            double hourUt = when.Hour + when.Minute / 60.0 + when.Second / 3600.0;
+            double jd = swe.swe_julday(when.Year, when.Month, when.Day, hourUt, SwissEph.SE_GREG_CAL);
+
+            var yf = new YearForecast { Year = when.Year, Age = age };
+
+            var b = bhuktis.FirstOrDefault(x => x.Start <= when && when < x.End);
+            yf.Maha = b.Maha ?? string.Empty;
+            yf.Bhukti = b.Bhukti ?? string.Empty;
+
+            int satHouseMoon = 1, jupHouseMoon = 1, jupHouseLagna = 1;
+            foreach (var body in TransitBodies)
+            {
+                int id = body switch { "Jupiter" => SwissEph.SE_JUPITER, "Saturn" => SwissEph.SE_SATURN, _ => SwissEph.SE_MEAN_NODE };
+                var xx = new double[6];
+                if (swe.swe_calc_ut(jd, id, iflag, xx, ref serr) < 0) continue;
+                double lon = Norm360(xx[0]);
+                int sign = (int)(lon / 30.0);
+                int hL = ((sign - ascSign + 12) % 12) + 1;
+                int hM = ((sign - moonSign + 12) % 12) + 1;
+                yf.Transits.Add(new TransitPos { Planet = body, Sign = sign, SignName = Signs[sign], HouseFromLagna = hL, HouseFromMoon = hM });
+                if (body == "Saturn") satHouseMoon = hM;
+                if (body == "Jupiter") { jupHouseMoon = hM; jupHouseLagna = hL; }
+                if (body == "Rahu" && (hM == 1 || hL == 1))
+                    yf.Notes.Add(new TransitNote { Tone = "info", Code = "rahuTransit", Planet = "Rahu", House = hL });
+            }
+
+            // Sade Sati: Saturn in 12th / 1st / 2nd from natal Moon.
+            yf.SadeSati = satHouseMoon is 12 or 1 or 2;
+            if (yf.SadeSati) yf.Notes.Add(new TransitNote { Tone = "warn", Code = "sadeSati", Planet = "Saturn", House = satHouseMoon });
+            else if (satHouseMoon is 4 or 8) yf.Notes.Add(new TransitNote { Tone = "warn", Code = satHouseMoon == 8 ? "ashtamaSani" : "kantakaSani", Planet = "Saturn", House = satHouseMoon });
+
+            // Jupiter blessings.
+            if (jupHouseLagna == 1) yf.Notes.Add(new TransitNote { Tone = "good", Code = "jupLagna", Planet = "Jupiter", House = 1 });
+            if (jupHouseMoon is 5 or 9 or 11) yf.Notes.Add(new TransitNote { Tone = "good", Code = "jupTrineMoon", Planet = "Jupiter", House = jupHouseMoon });
+
+            // Overall stars (1–5).
+            int score = 6;
+            score += BeneficLords.Contains(yf.Maha) ? 1 : -1;
+            score += BeneficLords.Contains(yf.Bhukti) ? 1 : -1;
+            if (jupHouseMoon is 1 or 4 or 5 or 7 or 9 or 10 or 11) score += 1;
+            if (yf.SadeSati) score -= 2;
+            score = Math.Clamp(score, 2, 10);
+            yf.Stars = Math.Clamp((int)Math.Round(score / 2.0), 1, 5);
+
+            list.Add(yf);
+        }
+        return list;
+    }
+
+    // Concatenated antardashas across ALL mahadashas (whole life).
+    private static List<(DateTime Start, DateTime End, string Maha, string Bhukti)> BuildFullBhuktis(List<DashaPeriod> dashas)
+    {
+        var result = new List<(DateTime, DateTime, string, string)>();
+        foreach (var maha in dashas)
+            foreach (var bh in ComputeAntardashas(maha))
+                result.Add((DateTime.Parse(bh.StartUtc), DateTime.Parse(bh.EndUtc), maha.Lord, bh.Lord));
+        return result;
     }
 
     private static readonly int[] Upachaya = { 1, 4, 5, 7, 9, 10 };   // kendra + trikona (strong)

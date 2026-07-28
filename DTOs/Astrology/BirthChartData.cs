@@ -99,6 +99,38 @@ public class DashaPeriod
     public double Years { get; set; }
 }
 
+/// <summary>A transiting planet's position for a given year (gochara).</summary>
+public class TransitPos
+{
+    public string Planet { get; set; } = string.Empty;     // Jupiter | Saturn | Rahu
+    public int Sign { get; set; }                           // 0–11
+    public string SignName { get; set; } = string.Empty;
+    public int HouseFromLagna { get; set; }                // 1–12
+    public int HouseFromMoon { get; set; }                 // 1–12 (Chandra Lagna)
+}
+
+/// <summary>A structured transit/period note; the frontend localizes it to EN/MM.</summary>
+public class TransitNote
+{
+    public string Tone { get; set; } = "info";             // good | warn | info
+    public string Code { get; set; } = string.Empty;       // jupLagna | jupTrineMoon | sadeSati | ashtamaSani | rahuReturn …
+    public string Planet { get; set; } = string.Empty;
+    public int House { get; set; }
+}
+
+/// <summary>One year of the life timeline: age, active dasha/bhukti, transits and notes.</summary>
+public class YearForecast
+{
+    public int Year { get; set; }
+    public int Age { get; set; }
+    public string Maha { get; set; } = string.Empty;       // running mahadasha lord
+    public string Bhukti { get; set; } = string.Empty;     // running antardasha lord
+    public int Stars { get; set; }                         // 1–5 overall favourability
+    public bool SadeSati { get; set; }
+    public List<TransitPos> Transits { get; set; } = new();
+    public List<TransitNote> Notes { get; set; } = new();
+}
+
 /// <summary>Full sidereal Rasi (D1) chart payload.</summary>
 public class BirthChartData
 {
@@ -108,5 +140,6 @@ public class BirthChartData
     public List<DashaPeriod> Antardashas { get; set; } = new();   // bhuktis of the current mahadasha
     public List<Yoga> Yogas { get; set; } = new();
     public List<AreaPrediction> Predictions { get; set; } = new();
+    public List<YearForecast> Timeline { get; set; } = new();   // whole-life age → dasha/transit forecast
     public ChartMeta Meta { get; set; } = new();
 }
