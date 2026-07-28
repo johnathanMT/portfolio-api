@@ -87,6 +87,7 @@ builder.Services.AddScoped<IFarewellService, FarewellService>();
 builder.Services.AddScoped<IVisitorService, VisitorService>();
 builder.Services.AddScoped<IAstrologyService, AstrologyService>();
 builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 // ─────────────────────────────────────────────────────────────
 // 3. FLUENT VALIDATION
@@ -429,7 +430,15 @@ CREATE TABLE IF NOT EXISTS QuerentCharts (
   Consent TINYINT(1) NOT NULL DEFAULT 0,
   CreatedAt DATETIME(6) NOT NULL
 ) CHARACTER SET=utf8mb4;");
-        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts).");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS PdfRequests (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  Email TEXT NULL, Name TEXT NULL, BirthInfo TEXT NULL,
+  ApprovalStatus VARCHAR(20) NOT NULL DEFAULT 'Pending',
+  DownloadToken VARCHAR(140) NULL, TokenExpiry DATETIME(6) NULL,
+  CreatedAt DATETIME(6) NOT NULL
+) CHARACTER SET=utf8mb4;");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests).");
     }
     catch (Exception ex)
     {
