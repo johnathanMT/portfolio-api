@@ -138,7 +138,8 @@ public class BirthChartData
     public AscendantInfo Ascendant { get; set; } = new();
     public List<PlanetPosition> Planets { get; set; } = new();
     public List<DashaPeriod> Dashas { get; set; } = new();
-    public List<DashaPeriod> Antardashas { get; set; } = new();   // bhuktis of the current mahadasha
+    public List<DashaPeriod> Antardashas { get; set; } = new();      // bhuktis of the current mahadasha
+    public List<DashaPeriod> Pratyantardashas { get; set; } = new(); // pratyantars of the current bhukti (3rd level)
     public List<Yoga> Yogas { get; set; } = new();
     public List<AreaPrediction> Predictions { get; set; } = new();
     public List<YearForecast> Timeline { get; set; } = new();   // whole-life age → dasha/transit forecast

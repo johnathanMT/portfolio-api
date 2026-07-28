@@ -188,8 +188,11 @@ public class AstrologyService : IAstrologyService
             var dashas = ComputeVimshottari(utc, moonLon);
             var maha = ActiveDasha(dashas);
             var antardashas = maha != null ? ComputeAntardashas(maha) : new List<DashaPeriod>();
+            var bhukti = ActiveDasha(antardashas);
+            var pratyantardashas = bhukti != null ? ComputeAntardashas(bhukti) : new List<DashaPeriod>();
             string mahaLord = maha?.Lord ?? "Sun";
-            string bhuktiLord = ActiveDasha(antardashas)?.Lord ?? mahaLord;
+            string bhuktiLord = bhukti?.Lord ?? mahaLord;
+            string pratyantarLord = ActiveDasha(pratyantardashas)?.Lord ?? bhuktiLord;
             int moonSign = (int)(moonLon / 30.0);
             var timeline = ComputeLifeTimeline(swe, iflag, utc, ascSign, moonSign, dashas);
 
@@ -199,8 +202,9 @@ public class AstrologyService : IAstrologyService
                 Planets = planets,
                 Dashas = dashas,
                 Antardashas = antardashas,
+                Pratyantardashas = pratyantardashas,
                 Yogas = DetectYogas(planets),
-                Predictions = ComputePredictions(planets, ascSign, mahaLord, bhuktiLord),
+                Predictions = ComputePredictions(planets, ascSign, mahaLord, bhuktiLord, pratyantarLord),
                 Timeline = timeline,
                 Meta = new ChartMeta
                 {
@@ -593,7 +597,7 @@ public class AstrologyService : IAstrologyService
     // Rule-based per-area predictions: house-lord dignity + placement, karaka
     // dignity, occupants, aspects (drishti) and dasha/bhukti activation. Emits
     // STRUCTURED findings; the frontend localizes them to EN / မြန်မာ sentences.
-    private static List<AreaPrediction> ComputePredictions(List<PlanetPosition> planets, int ascSign, string mahaLord, string bhuktiLord)
+    private static List<AreaPrediction> ComputePredictions(List<PlanetPosition> planets, int ascSign, string mahaLord, string bhuktiLord, string pratyantarLord)
     {
         var by = planets.ToDictionary(p => p.Name);
         double sunLon = by["Sun"].Longitude, moonLon = by["Moon"].Longitude;
@@ -616,6 +620,10 @@ public class AstrologyService : IAstrologyService
             if (Upachaya.Contains(lordHouse)) score += 8;
             else if (Dusthana.Contains(lordHouse)) score -= 10;
             findings.Add(new Finding { Code = "lordPlacement", Planet = lord, House = lordHouse, Value = Dusthana.Contains(lordHouse) ? "dusthana" : Upachaya.Contains(lordHouse) ? "strong" : "neutral" });
+
+            // 2b. Lord's state — combust (weakens) / retrograde (internalized, re-do).
+            if (by[lord].Combust) { score -= 6; findings.Add(new Finding { Code = "combust", Planet = lord, House = house, Value = "combust" }); }
+            if (by[lord].Retrograde) { findings.Add(new Finding { Code = "retro", Planet = lord, House = house, Value = "retro" }); }
 
             // 3. Karaka (significator) dignities.
             foreach (var k in karakas)
@@ -654,6 +662,11 @@ public class AstrologyService : IAstrologyService
             {
                 score += 8;
                 findings.Add(new Finding { Code = "bhuktiActive", Planet = bhuktiLord, Value = area });
+            }
+            if (pratyantarLord != bhuktiLord && (lord == pratyantarLord || karakas.Contains(pratyantarLord)))
+            {
+                score += 5;
+                findings.Add(new Finding { Code = "pratyantarActive", Planet = pratyantarLord, Value = area });
             }
 
             score = Math.Clamp(score, 0, 100);
