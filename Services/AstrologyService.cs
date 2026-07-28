@@ -169,7 +169,12 @@ public class AstrologyService : IAstrologyService
                     return ApiResponse<BirthChartData>.Fail($"Ephemeris error for {name}: {serr}", 500);
                 double plon = Norm360(xx[0]);
                 if (name == "Moon") moonLon = plon;
-                planets.Add(BuildPlanet(name, plon, xx[3] < 0, ascSign));
+                var pp = BuildPlanet(name, plon, xx[3] < 0, ascSign);
+                // Equatorial declination (frame-independent) for Ayana bala.
+                var xe = new double[6];
+                if (swe.swe_calc_ut(jd, id, SwissEph.SEFLG_MOSEPH | SwissEph.SEFLG_EQUATORIAL, xe, ref serr) >= 0)
+                    pp.Declination = Math.Round(xe[1], 4);
+                planets.Add(pp);
             }
 
             // Rahu (mean node) + Ketu (180° opposite). Nodes are always retrograde.
@@ -400,51 +405,82 @@ public class AstrologyService : IAstrologyService
         }
     }
 
-    // Extended Shadbala (5 components): Sthana(Uccha) + Dig + Naisargika + Paksha
-    // (Kala) + Drik (aspectual). A fully-validated Parashari Shadbala also needs the
-    // remaining Kala sub-parts (Nathonnata/Ayana/…), Cheshta and Yuddha bala —
-    // a later phase. Rahu/Ketu are not part of classical Shadbala → null.
+    // ── Full Shadbala statics ──
+    private static readonly int[] Panapara = { 2, 5, 8, 11 };
+    private static readonly HashSet<string> NorthStrong = new() { "Sun", "Mars", "Jupiter", "Venus", "Mercury" };
+    private static readonly HashSet<string> DayStrong = new() { "Sun", "Jupiter", "Venus" };
+    private static readonly HashSet<string> MalePlanet = new() { "Sun", "Mars", "Jupiter", "Mercury", "Saturn" };
+    private static readonly Dictionary<string, double> RequiredRupasMin = new()
+    { ["Sun"] = 5, ["Moon"] = 6, ["Mars"] = 5, ["Mercury"] = 7, ["Jupiter"] = 6.5, ["Venus"] = 5.5, ["Saturn"] = 5 };
+
+    // Full Shadbala — the six balas (Sthana, Dig, Kala, Cheshta, Naisargika, Drik).
+    // Sthana = Uccha + Kendradi + Ojayugma; Kala = Paksha + Nathonnata + Ayana.
+    // Rahu/Ketu are not part of classical Shadbala → null.
     private static void FillStrength(List<PlanetPosition> planets, double ascLon)
     {
-        double sunLon = planets.First(p => p.Name == "Sun").Longitude;
-        double moonLon = planets.First(p => p.Name == "Moon").Longitude;
+        var by = planets.ToDictionary(p => p.Name);
+        double sunLon = by["Sun"].Longitude, moonLon = by["Moon"].Longitude;
         double elong = Math.Abs(moonLon - sunLon); if (elong > 180) elong = 360 - elong;   // 0–180
         bool moonWaxing = ((moonLon - sunLon + 360.0) % 360.0) < 180.0;
+        bool isDay = by["Sun"].House >= 7;   // Sun above the horizon (whole-sign approx.)
 
         foreach (var p in planets)
         {
             if (!Naisargika.ContainsKey(p.Name)) { p.Strength = null; continue; }
 
+            // ── Sthana bala = Uccha + Kendradi + Ojayugma ──
             double debil = (ExaltPoint[p.Name] + 180.0) % 360.0;
             double du = Math.Abs(p.Longitude - debil); if (du > 180) du = 360 - du;
-            double uccha = du / 3.0;
+            double uccha = du / 3.0;                                            // 0–60
+            double kendradi = Kendras.Contains(p.House) ? 60 : Panapara.Contains(p.House) ? 30 : 15;
+            bool male = MalePlanet.Contains(p.Name);
+            bool oddR = p.Sign % 2 == 0, oddN = p.NavamsaSign % 2 == 0;
+            double oja = ((male ? oddR : !oddR) ? 15 : 0) + ((male ? oddN : !oddN) ? 15 : 0);
+            double sthana = uccha + kendradi + oja;
 
+            // ── Dig bala ──
             double ideal = (ascLon + DigIdeal[p.Name]) % 360.0;
             double powerless = (ideal + 180.0) % 360.0;
             double dd = Math.Abs(p.Longitude - powerless); if (dd > 180) dd = 360 - dd;
             double dig = dd / 3.0;
 
-            double nais = Naisargika[p.Name];
-
-            // Paksha bala: benefics gain on the waxing Moon, malefics on the waning.
+            // ── Kala bala = Paksha + Nathonnata + Ayana ──
             double pakshaBase = elong / 180.0 * 60.0;
             double paksha = IsBenefic(p.Name, moonWaxing) ? pakshaBase : 60.0 - pakshaBase;
+            if (p.Name == "Moon") paksha *= 2;                                  // Moon's paksha is doubled
+            double natho = p.Name == "Mercury" ? 60 : (DayStrong.Contains(p.Name) == isDay ? 60 : 0);
+            double delta = p.Declination;
+            double ayana = Math.Clamp(((p.Name == "Mercury" ? 24 + Math.Abs(delta)
+                            : NorthStrong.Contains(p.Name) ? 24 + delta : 24 - delta) / 48.0) * 60.0, 0, 60);
+            double kala = paksha + natho + ayana;
 
-            // Drik bala: net (benefic − malefic) aspects received, scaled + clamped.
+            // ── Cheshta bala (Sun→Ayana, Moon→Paksha, others→motional state) ──
+            double cheshta = p.Name == "Sun" ? ayana : p.Name == "Moon" ? paksha
+                : p.Retrograde ? 45 : p.Combust ? 15 : 30;
+
+            // ── Naisargika ──
+            double nais = Naisargika[p.Name];
+
+            // ── Drik bala: net (benefic − malefic) aspects received ──
             int ben = planets.Count(q => q.Name != p.Name && q.AspectsPlanets.Contains(p.Name) && IsBenefic(q.Name, moonWaxing));
             int mal = planets.Count(q => q.Name != p.Name && q.AspectsPlanets.Contains(p.Name) && !IsBenefic(q.Name, moonWaxing));
             double drik = Math.Clamp((ben - mal) * 15.0, -60.0, 60.0);
 
-            double total = uccha + dig + nais + paksha + drik;
+            double total = sthana + dig + kala + cheshta + nais + drik;
+            double rupas = total / 60.0;
+            double req = RequiredRupasMin.GetValueOrDefault(p.Name, 5.0);
             p.Strength = new PlanetStrength
             {
-                UcchaBala = Math.Round(uccha, 2),
-                DigBala = Math.Round(dig, 2),
-                NaisargikaBala = Math.Round(nais, 2),
-                PakshaBala = Math.Round(paksha, 2),
-                DrikBala = Math.Round(drik, 2),
-                TotalVirupas = Math.Round(total, 2),
-                TotalRupas = Math.Round(total / 60.0, 2),
+                SthanaBala = Math.Round(sthana, 1),
+                DigBala = Math.Round(dig, 1),
+                KalaBala = Math.Round(kala, 1),
+                CheshtaBala = Math.Round(cheshta, 1),
+                NaisargikaBala = Math.Round(nais, 1),
+                DrikBala = Math.Round(drik, 1),
+                TotalVirupas = Math.Round(total, 1),
+                TotalRupas = Math.Round(rupas, 2),
+                RequiredRupas = req,
+                Sufficient = rupas >= req,
             };
         }
     }

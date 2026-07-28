@@ -20,22 +20,28 @@ public class PlanetPosition
     // ── Phase 3: vargas / aspects / strength ──
     public int NavamsaSign { get; set; }          // D9 sign
     public string NavamsaSignName { get; set; } = string.Empty;
+    public double Declination { get; set; }        // equatorial declination (for Ayana bala)
     public Dictionary<string, int> Vargas { get; set; } = new();   // D2,D3,D7,D9,D10,D12 → sign
     public int[] AspectsHouses { get; set; } = Array.Empty<int>();      // houses (1–12) aspected
     public string[] AspectsPlanets { get; set; } = Array.Empty<string>();
     public PlanetStrength? Strength { get; set; } // partial Shadbala; null for nodes
 }
 
-/// <summary>Partial Shadbala (Uccha + Dig + Naisargika bala), in virupas &amp; rupas.</summary>
+/// <summary>Full Shadbala — the six sources of strength (Sthana, Dig, Kala,
+/// Cheshta, Naisargika, Drik), in virupas (60 virupas = 1 rupa) with the
+/// classical required-rupa minimum.</summary>
 public class PlanetStrength
 {
-    public double UcchaBala { get; set; }
-    public double DigBala { get; set; }
-    public double NaisargikaBala { get; set; }
-    public double PakshaBala { get; set; }
-    public double DrikBala { get; set; }
+    public double SthanaBala { get; set; }      // positional (Uccha + Kendradi + Ojayugma)
+    public double DigBala { get; set; }         // directional
+    public double KalaBala { get; set; }        // temporal (Paksha + Nathonnata + Ayana)
+    public double CheshtaBala { get; set; }     // motional
+    public double NaisargikaBala { get; set; }  // natural
+    public double DrikBala { get; set; }        // aspectual
     public double TotalVirupas { get; set; }
     public double TotalRupas { get; set; }
+    public double RequiredRupas { get; set; }   // classical minimum for this planet
+    public bool Sufficient { get; set; }        // TotalRupas >= RequiredRupas
 }
 
 /// <summary>A detected yoga (planetary combination) with the planets involved.</summary>
