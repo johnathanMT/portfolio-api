@@ -449,7 +449,17 @@ CREATE TABLE IF NOT EXISTS Customers (
   CreatedAt DATETIME(6) NOT NULL, UpdatedAt DATETIME(6) NOT NULL,
   UNIQUE KEY uq_customer_email (Email)
 ) CHARACTER SET=utf8mb4;");
-        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers).");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS CustomerCharts (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NOT NULL,
+  Name TEXT NULL, Gender VARCHAR(20) NULL,
+  BirthDate TEXT NULL, BirthTime TEXT NULL, TimeZone VARCHAR(80) NULL,
+  Location TEXT NULL, NayNan INT NOT NULL DEFAULT 0,
+  CreatedAt DATETIME(6) NOT NULL,
+  KEY ix_customerchart_owner (CustomerId)
+) CHARACTER SET=utf8mb4;");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts).");
     }
     catch (Exception ex)
     {

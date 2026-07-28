@@ -8,9 +8,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PortfolioApi.Common;
 using PortfolioApi.Data;
+using PortfolioApi.DTOs.Astrology;
 using PortfolioApi.DTOs.Auth;
 using PortfolioApi.Interfaces;
 using PortfolioApi.Models;
+using PortfolioApi.Security;
+using PortfolioApi.Services;
 
 namespace PortfolioApi.Controllers;
 
@@ -28,12 +31,14 @@ public class CustomerController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IEmailService _email;
     private readonly IConfiguration _cfg;
+    private readonly string _encKey;
 
     public CustomerController(AppDbContext db, IEmailService email, IConfiguration cfg)
     {
         _db = db;
         _email = email;
         _cfg = cfg;
+        _encKey = cfg["Astrology:EncryptionKey"] ?? cfg["Jwt:Key"] ?? "astrology-fallback-key-set-in-env";
     }
 
     // ── Sign up (email only) + send confirmation email ──────────────────────────
@@ -131,6 +136,83 @@ public class CustomerController : ControllerBase
         cust.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Ok(ApiResponse<object>.Ok(new { cust.Username }, "Username updated."));
+    }
+
+    // ── Save a chart under the account ──────────────────────────────────────────
+    [HttpPost("save-chart")]
+    [Authorize]
+    public async Task<IActionResult> SaveChart([FromBody] SaveChartDto dto)
+    {
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        var row = new CustomerChart
+        {
+            CustomerId = id,
+            Name = FieldCrypto.Encrypt(dto.Name, _encKey),
+            Gender = dto.Gender,
+            BirthDate = FieldCrypto.Encrypt(dto.BirthDate, _encKey),
+            BirthTime = FieldCrypto.Encrypt(dto.BirthTime, _encKey),
+            TimeZone = dto.TimeZone,
+            Location = FieldCrypto.Encrypt($"{dto.Latitude},{dto.Longitude}", _encKey),
+            NayNan = dto.NayNan,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.CustomerCharts.Add(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { row.Id }, "Chart saved to your account."));
+    }
+
+    // ── List the account's saved charts (decrypted) → form autofill ─────────────
+    [HttpGet("my-charts")]
+    [Authorize]
+    public async Task<IActionResult> MyCharts()
+    {
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        var rows = await _db.CustomerCharts.Where(c => c.CustomerId == id).OrderByDescending(c => c.CreatedAt).Take(100).ToListAsync();
+        var view = rows.Select(c =>
+        {
+            var loc = FieldCrypto.Decrypt(c.Location, _encKey).Split(',');
+            double.TryParse(loc.ElementAtOrDefault(0), out var lat);
+            double.TryParse(loc.ElementAtOrDefault(1), out var lon);
+            return new CustomerChartView
+            {
+                Id = c.Id,
+                Name = FieldCrypto.Decrypt(c.Name, _encKey),
+                Gender = c.Gender,
+                BirthDate = FieldCrypto.Decrypt(c.BirthDate, _encKey),
+                BirthTime = FieldCrypto.Decrypt(c.BirthTime, _encKey),
+                TimeZone = c.TimeZone,
+                Latitude = lat,
+                Longitude = lon,
+                NayNan = c.NayNan,
+                CreatedAt = c.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+            };
+        }).ToList();
+        return Ok(ApiResponse<List<CustomerChartView>>.Ok(view, "OK"));
+    }
+
+    // ── Account-based PDF download (no admin approval, no SMTP) ──────────────────
+    [HttpGet("download-pdf")]
+    [Authorize]
+    public async Task<IActionResult> DownloadPdf([FromQuery] int? chartId)
+    {
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        var q = _db.CustomerCharts.Where(c => c.CustomerId == id);
+        var chart = chartId is int cid
+            ? await q.FirstOrDefaultAsync(c => c.Id == cid)
+            : await q.OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync();
+        if (chart is null) return NotFound(ApiResponse<object>.Fail("No saved chart to export.", 404));
+
+        string name = FieldCrypto.Decrypt(chart.Name, _encKey);
+        string bd = FieldCrypto.Decrypt(chart.BirthDate, _encKey);
+        string bt = FieldCrypto.Decrypt(chart.BirthTime, _encKey);
+        var pdf = MiniPdf.Build("Vedin - Vedic Astrology Reading", new[]
+        {
+            "Sayar Bhone Min Thike Din - Professional Vedic Astrology", "",
+            string.IsNullOrWhiteSpace(name) ? "Reading for: (you)" : $"Reading for: {name}",
+            $"Birth: {bd} {bt}".Trim(), "",
+            "Your reading document, generated from your saved chart.",
+        });
+        return File(pdf, "application/pdf", "vedin-reading.pdf");
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
