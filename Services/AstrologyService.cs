@@ -127,20 +127,22 @@ public class AstrologyService : IAstrologyService
         var swe = new SwissEph();
         try
         {
-            // Sidereal zodiac — selectable ayanamsa.
+            // Sidereal zodiac — selectable ayanamsa. Stable Swiss-Ephemeris SE_SIDM_*
+            // values are used as literals for portability across SwissEphNet builds.
+            const int SIDM_LAHIRI = 1, SIDM_RAMAN = 3, SIDM_KP = 5, SIDM_TRUE_CITRA = 27;
             int sidMode = (req.Ayanamsa ?? "lahiri").ToLowerInvariant() switch
             {
-                "raman" => SwissEph.SE_SIDM_RAMAN,
-                "kp" or "krishnamurti" => SwissEph.SE_SIDM_KRISHNAMURTI,
-                "truechitra" or "true_chitra" or "chitrapaksha" => SwissEph.SE_SIDM_TRUE_CITRA,
-                _ => SwissEph.SE_SIDM_LAHIRI,
+                "raman" => SIDM_RAMAN,
+                "kp" or "krishnamurti" => SIDM_KP,
+                "truechitra" or "true_chitra" or "chitrapaksha" => SIDM_TRUE_CITRA,
+                _ => SIDM_LAHIRI,
             };
             swe.swe_set_sid_mode(sidMode, 0, 0);
             string ayaName = sidMode switch
             {
-                SwissEph.SE_SIDM_RAMAN => "Raman",
-                SwissEph.SE_SIDM_KRISHNAMURTI => "KP (Krishnamurti)",
-                SwissEph.SE_SIDM_TRUE_CITRA => "True Chitra",
+                SIDM_RAMAN => "Raman",
+                SIDM_KP => "KP (Krishnamurti)",
+                SIDM_TRUE_CITRA => "True Chitra",
                 _ => "Lahiri",
             };
 
@@ -171,8 +173,9 @@ public class AstrologyService : IAstrologyService
                 if (name == "Moon") moonLon = plon;
                 var pp = BuildPlanet(name, plon, xx[3] < 0, ascSign);
                 // Equatorial declination (frame-independent) for Ayana bala.
+                // SEFLG_EQUATORIAL = 2048 (used as a literal for portability).
                 var xe = new double[6];
-                if (swe.swe_calc_ut(jd, id, SwissEph.SEFLG_MOSEPH | SwissEph.SEFLG_EQUATORIAL, xe, ref serr) >= 0)
+                if (swe.swe_calc_ut(jd, id, SwissEph.SEFLG_MOSEPH | 2048, xe, ref serr) >= 0)
                     pp.Declination = Math.Round(xe[1], 4);
                 planets.Add(pp);
             }
