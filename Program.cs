@@ -533,16 +533,20 @@ CREATE TABLE IF NOT EXISTS ReadingRequests (
   Markdown MEDIUMTEXT NULL,
   Model VARCHAR(60) NULL,
   PdfRequested TINYINT(1) NOT NULL DEFAULT 0,
+  PdfSent TINYINT(1) NOT NULL DEFAULT 0,
+  ClientEmail TEXT NULL,
   CreatedAt DATETIME(6) NOT NULL,
   ApprovedAt DATETIME(6) NULL,
   KEY ix_readingreq_hash (QuerentHash),
   KEY ix_readingreq_status (Status)
 ) CHARACTER SET=utf8mb4;");
-        // Additive CRM columns on RemedyRequests (idempotent — ignore "column exists").
+        // Additive columns (idempotent — ignore "column exists" on already-migrated DBs).
         foreach (var alter in new[]
         {
             "ALTER TABLE RemedyRequests ADD COLUMN Status VARCHAR(20) NOT NULL DEFAULT 'Pending'",
             "ALTER TABLE RemedyRequests ADD COLUMN Notes TEXT NULL",
+            "ALTER TABLE ReadingRequests ADD COLUMN PdfSent TINYINT(1) NOT NULL DEFAULT 0",
+            "ALTER TABLE ReadingRequests ADD COLUMN ClientEmail TEXT NULL",
         })
         {
             try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }

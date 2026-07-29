@@ -29,6 +29,10 @@ public class ReadingRequest
 
     /// <summary>The querent has asked for the finished reading as a PDF by email.</summary>
     public bool PdfRequested { get; set; }
+    /// <summary>Set once the Sayar has manually emailed the PDF (clears the queue).</summary>
+    public bool PdfSent { get; set; }
+    /// <summary>Email the querent wants the PDF sent to (encrypted at rest).</summary>
+    public string? ClientEmail { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ApprovedAt { get; set; }

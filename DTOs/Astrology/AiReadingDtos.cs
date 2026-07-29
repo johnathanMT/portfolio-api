@@ -88,11 +88,19 @@ public class ReadingRequestAdminView
 {
     public int Id { get; set; }
     public string QuerentName { get; set; } = string.Empty;
+    public string? ClientEmail { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool HasMarkdown { get; set; }
     public bool PdfRequested { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
     public string? ApprovedAt { get; set; }
+}
+
+/// <summary>Body for a querent's PDF request — the email to deliver the PDF to.</summary>
+public class RequestPdfEmailDto
+{
+    [System.ComponentModel.DataAnnotations.MaxLength(160)]
+    public string? Email { get; set; }
 }
 
 /// <summary>One interpreted planetary placement.</summary>

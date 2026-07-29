@@ -124,21 +124,31 @@ public class AstrologyController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> AdminRemedies()
     {
-        var rows = await _db.RemedyRequests.OrderByDescending(r => r.CreatedAt).Take(500).ToListAsync();
-        var view = rows.Select(r => new RemedyView
+        // Robust: never 500. Missing table/columns → return []; a single row that
+        // fails to decrypt is shown with a "[decrypt-error]" marker (via SafeDecrypt)
+        // rather than blowing up the whole list, so you can still delete bad rows.
+        try
         {
-            Id = r.Id,
-            Name = FieldCrypto.Decrypt(r.Name, _encKey),
-            Contact = FieldCrypto.Decrypt(r.Contact, _encKey),
-            Area = r.Area,
-            Message = FieldCrypto.Decrypt(r.Message, _encKey),
-            BirthInfo = FieldCrypto.Decrypt(r.BirthInfo, _encKey),
-            Handled = r.Handled,
-            Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
-            Notes = r.Notes ?? string.Empty,
-            CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
-        }).ToList();
-        return Ok(ApiResponse<List<RemedyView>>.Ok(view, "OK"));
+            var rows = await _db.RemedyRequests.OrderByDescending(r => r.CreatedAt).Take(500).ToListAsync();
+            var view = rows.Select(r => new RemedyView
+            {
+                Id = r.Id,
+                Name = SafeDecrypt(r.Name),
+                Contact = SafeDecrypt(r.Contact),
+                Area = r.Area,
+                Message = SafeDecrypt(r.Message),
+                BirthInfo = SafeDecrypt(r.BirthInfo),
+                Handled = r.Handled,
+                Status = string.IsNullOrWhiteSpace(r.Status) ? "Pending" : r.Status,
+                Notes = r.Notes ?? string.Empty,
+                CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+            }).ToList();
+            return Ok(ApiResponse<List<RemedyView>>.Ok(view, "OK"));
+        }
+        catch (Exception)
+        {
+            return Ok(ApiResponse<List<RemedyView>>.Ok(new List<RemedyView>(), "OK"));
+        }
     }
 
     private static readonly string[] ValidStatuses = { "Pending", "InProgress", "Completed", "Cancelled" };
@@ -532,17 +542,24 @@ public class AstrologyController : ControllerBase
             : Ok(ApiResponse<ReadingStatusView>.Ok(ToStatusView(row), "OK"));
     }
 
-    /// <summary>Ask the Sayar to email the approved reading as a PDF.</summary>
+    /// <summary>Ask the Sayar to email the approved reading as a PDF. The querent
+    /// supplies the delivery email in the body: { "email": "…" }.</summary>
     [HttpPost("reading/{id:int}/request-pdf")]
     [EnableRateLimiting("general")]
-    public async Task<IActionResult> RequestReadingPdf(int id, CancellationToken ct)
+    public async Task<IActionResult> RequestReadingPdf(int id, [FromBody] RequestPdfEmailDto dto, CancellationToken ct)
     {
         var row = await _db.ReadingRequests.FindAsync(new object?[] { id }, ct);
         if (row is null) return NotFound(ApiResponse<object>.Fail("Reading not found.", 404));
         if (row.Status != "Approved")
             return BadRequest(ApiResponse<object>.Fail("The reading has not been approved yet.", 400));
 
+        var email = (dto?.Email ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return BadRequest(ApiResponse<object>.Fail("A valid email address is required.", 400));
+
+        row.ClientEmail = FieldCrypto.Encrypt(email, _encKey);
         row.PdfRequested = true;
+        row.PdfSent = false;
         await _db.SaveChangesAsync(ct);
 
         try
@@ -550,7 +567,7 @@ public class AstrologyController : ControllerBase
             var adminEmail = _cfg["App:AdminEmail"] ?? _cfg["Smtp:User"];
             if (!string.IsNullOrWhiteSpace(adminEmail))
                 await _email.SendAsync(adminEmail, "📄 PDF ဟောစာတမ်း တောင်းဆိုမှု — Vedin",
-                    NotifyAdminEmail($"Reading request #{id} — the querent asked for the PDF by email.", "pdf"));
+                    NotifyAdminEmail($"Reading request #{id} — the querent asked for the PDF at {email}.", "pdf"));
         }
         catch { /* best-effort */ }
 
@@ -567,18 +584,46 @@ public class AstrologyController : ControllerBase
             query = query.Where(r => r.Status == status);
 
         var rows = await query.OrderByDescending(r => r.CreatedAt).Take(500).ToListAsync();
-        var view = rows.Select(r => new ReadingRequestAdminView
-        {
-            Id = r.Id,
-            QuerentName = SafeDecrypt(r.QuerentName),
-            Status = r.Status,
-            HasMarkdown = !string.IsNullOrEmpty(r.Markdown),
-            PdfRequested = r.PdfRequested,
-            CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
-            ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
-        }).ToList();
-        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(view, "OK"));
+        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(rows.Select(ToAdminView).ToList(), "OK"));
     }
+
+    // ── Admin: reading requests awaiting a PDF email (queue) ─────────────────────
+    [HttpGet("admin/pdf-reading-requests")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminPdfReadingRequests()
+    {
+        var rows = await _db.ReadingRequests
+            .Where(r => r.PdfRequested)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(500)
+            .ToListAsync();
+        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(rows.Select(ToAdminView).ToList(), "OK"));
+    }
+
+    /// <summary>Admin marks a PDF as manually sent — clears it from the PDF queue.</summary>
+    [HttpPost("admin/reading-requests/{id:int}/mark-pdf-sent")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> MarkPdfSent(int id, CancellationToken ct)
+    {
+        var row = await _db.ReadingRequests.FindAsync(new object?[] { id }, ct);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Request not found.", 404));
+        row.PdfRequested = false;
+        row.PdfSent = true;
+        await _db.SaveChangesAsync(ct);
+        return Ok(ApiResponse<object>.Ok(new { row.Id }, "Marked as sent."));
+    }
+
+    private ReadingRequestAdminView ToAdminView(ReadingRequest r) => new()
+    {
+        Id = r.Id,
+        QuerentName = SafeDecrypt(r.QuerentName),
+        ClientEmail = string.IsNullOrEmpty(r.ClientEmail) ? null : SafeDecrypt(r.ClientEmail),
+        Status = r.Status,
+        HasMarkdown = !string.IsNullOrEmpty(r.Markdown),
+        PdfRequested = r.PdfRequested,
+        CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+        ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
+    };
 
     /// <summary>Admin approves a request — THIS is the only path that calls the AI.
     /// Generates the reading, encrypts + stores it, and flips status to Approved.</summary>
@@ -633,8 +678,9 @@ public class AstrologyController : ControllerBase
         ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
     };
 
-    private string SafeDecrypt(string cipher)
+    private string SafeDecrypt(string? cipher)
     {
+        if (string.IsNullOrEmpty(cipher)) return string.Empty;
         try { return FieldCrypto.Decrypt(cipher, _encKey); } catch { return "[decrypt-error]"; }
     }
 

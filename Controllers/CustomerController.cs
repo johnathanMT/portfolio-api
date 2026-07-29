@@ -264,6 +264,47 @@ public class CustomerController : ControllerBase
         return Ok(ApiResponse<List<CustomerChartView>>.Ok(view, "OK"));
     }
 
+    // ── Admin: list ALL customers' saved charts (decrypted) — for cleanup ───────
+    [HttpGet("admin/saved-charts")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminSavedCharts()
+    {
+        try
+        {
+            var rows = await _db.CustomerCharts.OrderByDescending(c => c.CreatedAt).Take(1000).ToListAsync();
+            string Dec(string? s) { if (string.IsNullOrEmpty(s)) return string.Empty; try { return FieldCrypto.Decrypt(s, _encKey); } catch { return "[decrypt-error]"; } }
+            var view = rows.Select(c => new QuerentChartView
+            {
+                Id = c.Id,
+                Name = Dec(c.Name),
+                Gender = c.Gender,
+                BirthDate = Dec(c.BirthDate),
+                BirthTime = Dec(c.BirthTime),
+                TimeZone = c.TimeZone,
+                Location = Dec(c.Location),
+                NayNan = c.NayNan,
+                CreatedAt = c.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+            }).ToList();
+            return Ok(ApiResponse<List<QuerentChartView>>.Ok(view, "OK"));
+        }
+        catch (Exception)
+        {
+            return Ok(ApiResponse<List<QuerentChartView>>.Ok(new List<QuerentChartView>(), "OK"));
+        }
+    }
+
+    // ── Admin: delete one customer saved chart (clear duplicate records) ────────
+    [HttpDelete("admin/saved-charts/{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminDeleteSavedChart(int id)
+    {
+        var row = await _db.CustomerCharts.FindAsync(id);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Not found.", 404));
+        _db.CustomerCharts.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { id }, "Deleted."));
+    }
+
     // ── Account-based PDF download (no admin approval, no SMTP) ──────────────────
     [HttpGet("download-pdf")]
     [Authorize]
