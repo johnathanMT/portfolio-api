@@ -522,6 +522,22 @@ CREATE TABLE IF NOT EXISTS ResearchJournalEntries (
   RowCreatedAt DATETIME(6) NOT NULL,
   KEY ix_researchjourn_owner (CustomerId)
 ) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ReadingRequests (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NULL,
+  QuerentHash CHAR(64) NOT NULL,
+  QuerentName TEXT NULL,
+  PayloadJson MEDIUMTEXT NULL,
+  Status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+  Markdown MEDIUMTEXT NULL,
+  Model VARCHAR(60) NULL,
+  PdfRequested TINYINT(1) NOT NULL DEFAULT 0,
+  CreatedAt DATETIME(6) NOT NULL,
+  ApprovedAt DATETIME(6) NULL,
+  KEY ix_readingreq_hash (QuerentHash),
+  KEY ix_readingreq_status (Status)
+) CHARACTER SET=utf8mb4;");
         // Additive CRM columns on RemedyRequests (idempotent — ignore "column exists").
         foreach (var alter in new[]
         {
@@ -531,7 +547,7 @@ CREATE TABLE IF NOT EXISTS ResearchJournalEntries (
         {
             try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }
         }
-        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts, AiReadings, ResearchPredictions, ResearchJournalEntries).");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts, AiReadings, ResearchPredictions, ResearchJournalEntries, ReadingRequests).");
     }
     catch (Exception ex)
     {

@@ -52,6 +52,47 @@ public class AiReadingRequestDto
 
     /// <summary>Reading language: "my" (Burmese, default) or "en".</summary>
     [MaxLength(8)] public string? Language { get; set; } = "my";
+
+    // ── Identity for the 30-day rate-limit hash (used only to derive a SHA-256
+    //    key; the raw values are stored ONLY inside the encrypted payload). ──────
+    [MaxLength(20)] public string? BirthDate { get; set; }   // yyyy-mm-dd
+    [MaxLength(20)] public string? BirthTime { get; set; }   // HH:mm
+    [MaxLength(160)] public string? Location { get; set; }
+}
+
+/// <summary>Look up an existing reading request by querent identity.</summary>
+public class ReadingStatusQueryDto
+{
+    [MaxLength(80)] public string? Name { get; set; }
+    [MaxLength(20)] public string? BirthDate { get; set; }
+    [MaxLength(20)] public string? BirthTime { get; set; }
+    [MaxLength(160)] public string? Location { get; set; }
+}
+
+/// <summary>Status of a reading request returned to the querent.</summary>
+public class ReadingStatusView
+{
+    /// <summary>None | Pending | Approved | Rejected</summary>
+    public string Status { get; set; } = "None";
+    public int RequestId { get; set; }
+    public string? Markdown { get; set; }   // only when Approved
+    public string? Model { get; set; }
+    public bool PdfRequested { get; set; }
+    public bool AlreadyRequested { get; set; }   // true if this request already existed within 30 days
+    public string CreatedAt { get; set; } = string.Empty;
+    public string? ApprovedAt { get; set; }
+}
+
+/// <summary>Admin listing row for pending/approved reading requests.</summary>
+public class ReadingRequestAdminView
+{
+    public int Id { get; set; }
+    public string QuerentName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public bool HasMarkdown { get; set; }
+    public bool PdfRequested { get; set; }
+    public string CreatedAt { get; set; } = string.Empty;
+    public string? ApprovedAt { get; set; }
 }
 
 /// <summary>One interpreted planetary placement.</summary>

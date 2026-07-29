@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<AiReading>       AiReadings       { get; set; }
     public DbSet<ResearchPrediction>   ResearchPredictions   { get; set; }
     public DbSet<ResearchJournalEntry> ResearchJournalEntries { get; set; }
+    public DbSet<ReadingRequest>       ReadingRequests       { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

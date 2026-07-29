@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -364,11 +367,12 @@ public class AstrologyController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    //  AI Reading — generate a personalised reading from a summarised chart.
-    //  Public + rate-limited ("ai"). If a valid customer token is present, the
-    //  reading is persisted to that account (Title + Markdown encrypted at rest).
+    //  AI Reading — direct generation. LOCKED to admin: the public path is now the
+    //  manual-approval workflow below (request-reading → admin approve), which keeps
+    //  the API key from ever being triggered by an anonymous click.
     // ─────────────────────────────────────────────────────────────────────────────
     [HttpPost("generate-ai-reading")]
+    [Authorize(Policy = "AdminOnly")]
     [EnableRateLimiting("ai")]
     [ProducesResponseType(typeof(ApiResponse<AiReadingResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -450,6 +454,208 @@ public class AstrologyController : ControllerBase
         _db.AiReadings.Remove(row);
         await _db.SaveChangesAsync();
         return Ok(ApiResponse.OkNoData("Deleted."));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════════
+    //  PREMIUM MANUAL-APPROVAL READING WORKFLOW
+    //  request-reading (no AI call) → admin approve (AI call) → user views Approved.
+    // ═════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Submit a reading request. Does NOT call the AI. Enforces one request
+    /// per querent per 30 days, then stores a Pending record for the Sayar to review.</summary>
+    [HttpPost("request-reading")]
+    [EnableRateLimiting("ai")]
+    [ProducesResponseType(typeof(ApiResponse<ReadingStatusView>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RequestReading([FromBody] AiReadingRequestDto req, CancellationToken ct)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<object>.Fail("Validation failed.", 400,
+                ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList()));
+
+        var hash = QuerentHash(req.Name, req.BirthDate, req.BirthTime, req.Location);
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+
+        // 30-day rate limit / de-dup: return the existing request instead of a new one.
+        var existing = await _db.ReadingRequests
+            .Where(r => r.QuerentHash == hash && r.CreatedAt >= cutoff)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (existing is not null)
+        {
+            var evw = ToStatusView(existing);
+            evw.AlreadyRequested = true;
+            return Ok(ApiResponse<ReadingStatusView>.Ok(evw,
+                existing.Status == "Approved"
+                    ? "Your reading is ready."
+                    : "You have already requested a reading this month. The Sayar is reviewing it."));
+        }
+
+        TryCustomerId(out int cid);
+        var row = new ReadingRequest
+        {
+            CustomerId = cid == 0 ? null : cid,
+            QuerentHash = hash,
+            QuerentName = FieldCrypto.Encrypt(string.IsNullOrWhiteSpace(req.Name) ? "(no name)" : req.Name!.Trim(), _encKey),
+            PayloadJson = FieldCrypto.Encrypt(JsonSerializer.Serialize(req), _encKey),
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.ReadingRequests.Add(row);
+        await _db.SaveChangesAsync(ct);
+
+        // Notify the Sayar that a new request is waiting (best-effort).
+        try
+        {
+            var adminEmail = _cfg["App:AdminEmail"] ?? _cfg["Smtp:User"];
+            if (!string.IsNullOrWhiteSpace(adminEmail))
+                await _email.SendAsync(adminEmail, "🔔 ဟောစာတမ်း တောင်းဆိုမှုအသစ် — Vedin",
+                    NotifyAdminEmail($"Querent: {(string.IsNullOrWhiteSpace(req.Name) ? "(no name)" : req.Name)}", "reading"));
+        }
+        catch { /* email is best-effort */ }
+
+        return Ok(ApiResponse<ReadingStatusView>.Ok(ToStatusView(row),
+            "Request received — awaiting the Sayar's review."));
+    }
+
+    /// <summary>Check the status of a querent's reading request (poll on page visit).</summary>
+    [HttpPost("reading-status")]
+    [EnableRateLimiting("general")]
+    public async Task<IActionResult> ReadingStatus([FromBody] ReadingStatusQueryDto q, CancellationToken ct)
+    {
+        var hash = QuerentHash(q.Name, q.BirthDate, q.BirthTime, q.Location);
+        var row = await _db.ReadingRequests
+            .Where(r => r.QuerentHash == hash)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        return row is null
+            ? Ok(ApiResponse<ReadingStatusView>.Ok(new ReadingStatusView { Status = "None" }, "No request found."))
+            : Ok(ApiResponse<ReadingStatusView>.Ok(ToStatusView(row), "OK"));
+    }
+
+    /// <summary>Ask the Sayar to email the approved reading as a PDF.</summary>
+    [HttpPost("reading/{id:int}/request-pdf")]
+    [EnableRateLimiting("general")]
+    public async Task<IActionResult> RequestReadingPdf(int id, CancellationToken ct)
+    {
+        var row = await _db.ReadingRequests.FindAsync(new object?[] { id }, ct);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Reading not found.", 404));
+        if (row.Status != "Approved")
+            return BadRequest(ApiResponse<object>.Fail("The reading has not been approved yet.", 400));
+
+        row.PdfRequested = true;
+        await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            var adminEmail = _cfg["App:AdminEmail"] ?? _cfg["Smtp:User"];
+            if (!string.IsNullOrWhiteSpace(adminEmail))
+                await _email.SendAsync(adminEmail, "📄 PDF ဟောစာတမ်း တောင်းဆိုမှု — Vedin",
+                    NotifyAdminEmail($"Reading request #{id} — the querent asked for the PDF by email.", "pdf"));
+        }
+        catch { /* best-effort */ }
+
+        return Ok(ApiResponse.OkNoData("PDF request sent to the Sayar."));
+    }
+
+    // ── Admin: list reading requests (optionally filter by status) ──────────────
+    [HttpGet("admin/reading-requests")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminReadingRequests([FromQuery] string? status)
+    {
+        var query = _db.ReadingRequests.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(r => r.Status == status);
+
+        var rows = await query.OrderByDescending(r => r.CreatedAt).Take(500).ToListAsync();
+        var view = rows.Select(r => new ReadingRequestAdminView
+        {
+            Id = r.Id,
+            QuerentName = SafeDecrypt(r.QuerentName),
+            Status = r.Status,
+            HasMarkdown = !string.IsNullOrEmpty(r.Markdown),
+            PdfRequested = r.PdfRequested,
+            CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+            ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
+        }).ToList();
+        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(view, "OK"));
+    }
+
+    /// <summary>Admin approves a request — THIS is the only path that calls the AI.
+    /// Generates the reading, encrypts + stores it, and flips status to Approved.</summary>
+    [HttpPost("admin/reading-requests/{id:int}/approve")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ApproveReading(int id, CancellationToken ct)
+    {
+        var row = await _db.ReadingRequests.FindAsync(new object?[] { id }, ct);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Request not found.", 404));
+        if (row.Status == "Approved" && !string.IsNullOrEmpty(row.Markdown))
+            return Ok(ApiResponse<object>.Ok(new { row.Id, row.Status }, "Already approved."));
+
+        AiReadingRequestDto? payload;
+        try { payload = JsonSerializer.Deserialize<AiReadingRequestDto>(FieldCrypto.Decrypt(row.PayloadJson, _encKey)); }
+        catch { return StatusCode(500, ApiResponse<object>.Fail("Could not read the stored chart payload.", 500)); }
+        if (payload is null) return StatusCode(500, ApiResponse<object>.Fail("Empty chart payload.", 500));
+
+        var result = await _ai.GenerateAsync(payload, ct);
+        if (!result.Success || result.Data is null)
+            return StatusCode(result.StatusCode, result);   // surface the AI error to the admin
+
+        row.Markdown = FieldCrypto.Encrypt(result.Data.Markdown, _encKey);
+        row.Model = result.Data.Model;
+        row.Status = "Approved";
+        row.ApprovedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(ApiResponse<object>.Ok(new { row.Id, row.Status, model = row.Model }, "Approved & generated."));
+    }
+
+    /// <summary>Admin rejects a request (no AI call).</summary>
+    [HttpPost("admin/reading-requests/{id:int}/reject")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> RejectReading(int id, CancellationToken ct)
+    {
+        var row = await _db.ReadingRequests.FindAsync(new object?[] { id }, ct);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Request not found.", 404));
+        row.Status = "Rejected";
+        await _db.SaveChangesAsync(ct);
+        return Ok(ApiResponse<object>.Ok(new { row.Id, row.Status }, "Rejected."));
+    }
+
+    // ── workflow helpers ─────────────────────────────────────────────────────────
+    private ReadingStatusView ToStatusView(ReadingRequest r) => new()
+    {
+        Status = r.Status,
+        RequestId = r.Id,
+        Markdown = r.Status == "Approved" && !string.IsNullOrEmpty(r.Markdown) ? SafeDecrypt(r.Markdown!) : null,
+        Model = r.Model,
+        PdfRequested = r.PdfRequested,
+        CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+        ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
+    };
+
+    private string SafeDecrypt(string cipher)
+    {
+        try { return FieldCrypto.Decrypt(cipher, _encKey); } catch { return "[decrypt-error]"; }
+    }
+
+    // SHA-256 of the querent's identity — the 30-day de-dup / rate-limit key.
+    private static string QuerentHash(string? name, string? dob, string? time, string? loc)
+    {
+        var basis = $"{name?.Trim().ToLowerInvariant()}|{dob?.Trim()}|{time?.Trim()}|{loc?.Trim().ToLowerInvariant()}";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(basis));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static string NotifyAdminEmail(string detail, string kind)
+    {
+        var title = kind == "pdf" ? "PDF ဟောစာတမ်း တောင်းဆိုမှု" : "ဟောစာတမ်း တောင်းဆိုမှုအသစ်";
+        return $$"""
+<div style="font-family:sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #eee;border-radius:12px">
+  <h2 style="color:#7c3aed;margin:0 0 8px">{{title}}</h2>
+  <p style="color:#333;line-height:1.7">{{System.Net.WebUtility.HtmlEncode(detail)}}</p>
+  <p style="color:#666;font-size:13px">Vedin admin panel မှတစ်ဆင့် ဝင်ရောက် စစ်ဆေးပြီး Approve လုပ်ပေးပါ။</p>
+</div>
+""";
     }
 
     // Reads the customer id from a customer JWT, if one was supplied. Returns false
