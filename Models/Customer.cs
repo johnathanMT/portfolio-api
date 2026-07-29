@@ -9,6 +9,7 @@ public class Customer
     public string Username { get; set; } = string.Empty;     // display name (editable)
     public string PasswordHash { get; set; } = string.Empty; // BCrypt, workFactor 12
     public bool EmailConfirmed { get; set; }
+    public bool IsSuspended { get; set; }                    // admin can suspend logins
     public string? VerifyToken { get; set; }
     public DateTime? VerifyExpiry { get; set; }
 

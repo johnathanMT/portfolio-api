@@ -465,6 +465,7 @@ CREATE TABLE IF NOT EXISTS Customers (
   Username VARCHAR(100) NOT NULL,
   PasswordHash TEXT NOT NULL,
   EmailConfirmed TINYINT(1) NOT NULL DEFAULT 0,
+  IsSuspended TINYINT(1) NOT NULL DEFAULT 0,
   VerifyToken VARCHAR(140) NULL, VerifyExpiry DATETIME(6) NULL,
   Gender VARCHAR(20) NULL,
   Dob TEXT NULL, BirthTime TEXT NULL, LocationName TEXT NULL,
@@ -557,6 +558,7 @@ CREATE TABLE IF NOT EXISTS ReadingRequests (
             "ALTER TABLE Customers ADD COLUMN Latitude DOUBLE NULL",
             "ALTER TABLE Customers ADD COLUMN Longitude DOUBLE NULL",
             "ALTER TABLE Customers ADD COLUMN Timezone VARCHAR(80) NULL",
+            "ALTER TABLE Customers ADD COLUMN IsSuspended TINYINT(1) NOT NULL DEFAULT 0",
         })
         {
             try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }

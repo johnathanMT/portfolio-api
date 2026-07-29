@@ -34,6 +34,18 @@ public class UpdateUsernameDto
     [Required, StringLength(100, MinimumLength = 2)] public string Username { get; set; } = string.Empty;
 }
 
+/// <summary>Admin listing of a registered user account.</summary>
+public class AdminUserView
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public bool IsSuspended { get; set; }
+    public bool EmailConfirmed { get; set; }
+    public bool HasProfile { get; set; }
+    public string CreatedAt { get; set; } = string.Empty;
+}
+
 /// <summary>Add / update the signed-in account's natal profile.</summary>
 public class UpdateProfileDto
 {

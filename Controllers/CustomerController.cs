@@ -182,6 +182,8 @@ public class CustomerController : ControllerBase
         var cust = await _db.Customers.FirstOrDefaultAsync(c => c.Email == email);
         if (cust is null || !BCrypt.Net.BCrypt.Verify(dto.Password, cust.PasswordHash))
             return Unauthorized(ApiResponse<object>.Fail("Invalid email or password.", 401));
+        if (cust.IsSuspended)
+            return StatusCode(403, ApiResponse<object>.Fail("Your account has been suspended by the Admin.", 403));
         if (!cust.EmailConfirmed)
             return Unauthorized(ApiResponse<object>.Fail("Please confirm your email before signing in.", 401));
 
@@ -382,6 +384,61 @@ public class CustomerController : ControllerBase
         _db.CustomerCharts.Remove(row);
         await _db.SaveChangesAsync();
         return Ok(ApiResponse<object>.Ok(new { id }, "Deleted."));
+    }
+
+    // ═══════════════════════ ADMIN USER MANAGEMENT (CRM / QA) ═══════════════════
+    /// <summary>List all registered accounts.</summary>
+    [HttpGet("admin/users")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminUsers()
+    {
+        var rows = await _db.Customers.OrderByDescending(c => c.CreatedAt).Take(2000).ToListAsync();
+        var view = rows.Select(c => new AdminUserView
+        {
+            Id = c.Id,
+            Username = c.Username,
+            Email = c.Email,
+            IsSuspended = c.IsSuspended,
+            EmailConfirmed = c.EmailConfirmed,
+            HasProfile = !string.IsNullOrEmpty(c.Dob) && c.Latitude.HasValue && c.Longitude.HasValue,
+            CreatedAt = c.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+        }).ToList();
+        return Ok(ApiResponse<List<AdminUserView>>.Ok(view, "OK"));
+    }
+
+    /// <summary>Toggle an account's suspended status (blocks / restores login).</summary>
+    [HttpPatch("admin/users/{id:int}/toggle-suspend")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ToggleSuspend(int id)
+    {
+        var cust = await _db.Customers.FindAsync(id);
+        if (cust is null) return NotFound(ApiResponse<object>.Fail("User not found.", 404));
+        cust.IsSuspended = !cust.IsSuspended;
+        cust.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { cust.Id, cust.IsSuspended },
+            cust.IsSuspended ? "User suspended." : "User activated."));
+    }
+
+    /// <summary>Hard-delete an account and all its owned rows (no FK orphans).</summary>
+    [HttpDelete("admin/users/{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> DeleteUser(int id)
+    {
+        var cust = await _db.Customers.FindAsync(id);
+        if (cust is null) return NotFound(ApiResponse<object>.Fail("User not found.", 404));
+
+        // Remove everything the account owns first (these tables carry CustomerId
+        // but no DB-level FK, so this keeps the data clean rather than orphaned).
+        await _db.CustomerCharts.Where(c => c.CustomerId == id).ExecuteDeleteAsync();
+        await _db.AiReadings.Where(a => a.CustomerId == id).ExecuteDeleteAsync();
+        await _db.ReadingRequests.Where(r => r.CustomerId == id).ExecuteDeleteAsync();
+        await _db.ResearchPredictions.Where(p => p.CustomerId == id).ExecuteDeleteAsync();
+        await _db.ResearchJournalEntries.Where(j => j.CustomerId == id).ExecuteDeleteAsync();
+
+        _db.Customers.Remove(cust);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok(new { id }, "User deleted."));
     }
 
     // ── Account-based PDF download (no admin approval, no SMTP) ──────────────────
