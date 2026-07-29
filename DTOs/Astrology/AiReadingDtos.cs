@@ -83,7 +83,9 @@ public class ReadingStatusView
     public string? ApprovedAt { get; set; }
 }
 
-/// <summary>Admin listing row for pending/approved reading requests.</summary>
+/// <summary>Admin listing row for pending/approved reading requests. When the
+/// request came from a signed-in account, the account's decrypted natal profile
+/// is attached so the Sayar has full context.</summary>
 public class ReadingRequestAdminView
 {
     public int Id { get; set; }
@@ -94,6 +96,18 @@ public class ReadingRequestAdminView
     public bool PdfRequested { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
     public string? ApprovedAt { get; set; }
+
+    // ── Registered-account context (null for guest requests) ────────────────────
+    public bool IsRegistered { get; set; }
+    public string? AccountEmail { get; set; }
+    public string? AccountUsername { get; set; }
+    public string? Gender { get; set; }
+    public string? Dob { get; set; }
+    public string? BirthTime { get; set; }
+    public string? LocationName { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public string? Timezone { get; set; }
 }
 
 /// <summary>Body for a querent's PDF request — the email to deliver the PDF to.</summary>

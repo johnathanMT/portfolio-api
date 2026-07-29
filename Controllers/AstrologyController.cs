@@ -584,7 +584,9 @@ public class AstrologyController : ControllerBase
             query = query.Where(r => r.Status == status);
 
         var rows = await query.OrderByDescending(r => r.CreatedAt).Take(500).ToListAsync();
-        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(rows.Select(ToAdminView).ToList(), "OK"));
+        var accounts = await LoadAccounts(rows);
+        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(
+            rows.Select(r => ToAdminView(r, Lookup(accounts, r))).ToList(), "OK"));
     }
 
     // ── Admin: reading requests awaiting a PDF email (queue) ─────────────────────
@@ -597,8 +599,20 @@ public class AstrologyController : ControllerBase
             .OrderByDescending(r => r.CreatedAt)
             .Take(500)
             .ToListAsync();
-        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(rows.Select(ToAdminView).ToList(), "OK"));
+        var accounts = await LoadAccounts(rows);
+        return Ok(ApiResponse<List<ReadingRequestAdminView>>.Ok(
+            rows.Select(r => ToAdminView(r, Lookup(accounts, r))).ToList(), "OK"));
     }
+
+    // Batch-load the Customer accounts referenced by a set of reading requests.
+    private async Task<Dictionary<int, Customer>> LoadAccounts(List<ReadingRequest> rows)
+    {
+        var ids = rows.Where(r => r.CustomerId.HasValue).Select(r => r.CustomerId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<int, Customer>();
+        return await _db.Customers.Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id);
+    }
+    private static Customer? Lookup(Dictionary<int, Customer> map, ReadingRequest r)
+        => r.CustomerId.HasValue && map.TryGetValue(r.CustomerId.Value, out var c) ? c : null;
 
     /// <summary>Admin marks a PDF as manually sent — clears it from the PDF queue.</summary>
     [HttpPost("admin/reading-requests/{id:int}/mark-pdf-sent")]
@@ -613,7 +627,7 @@ public class AstrologyController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new { row.Id }, "Marked as sent."));
     }
 
-    private ReadingRequestAdminView ToAdminView(ReadingRequest r) => new()
+    private ReadingRequestAdminView ToAdminView(ReadingRequest r, Customer? account) => new()
     {
         Id = r.Id,
         QuerentName = SafeDecrypt(r.QuerentName),
@@ -623,7 +637,24 @@ public class AstrologyController : ControllerBase
         PdfRequested = r.PdfRequested,
         CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
         ApprovedAt = r.ApprovedAt?.ToString("yyyy-MM-dd HH:mm"),
+        // Registered-account context (decrypted) — null for guests.
+        IsRegistered = account is not null,
+        AccountEmail = account?.Email,
+        AccountUsername = account?.Username,
+        Gender = account?.Gender,
+        Dob = account is null ? null : SafeDecryptOrNull(account.Dob),
+        BirthTime = account is null ? null : SafeDecryptOrNull(account.BirthTime),
+        LocationName = account is null ? null : SafeDecryptOrNull(account.LocationName),
+        Latitude = account?.Latitude,
+        Longitude = account?.Longitude,
+        Timezone = account?.Timezone,
     };
+
+    private string? SafeDecryptOrNull(string? cipher)
+    {
+        if (string.IsNullOrEmpty(cipher)) return null;
+        try { return FieldCrypto.Decrypt(cipher, _encKey); } catch { return null; }
+    }
 
     /// <summary>Admin approves a request — THIS is the only path that calls the AI.
     /// Generates the reading, encrypts + stores it, and flips status to Approved.</summary>

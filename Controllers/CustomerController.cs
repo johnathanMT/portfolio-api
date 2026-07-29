@@ -232,6 +232,37 @@ public class CustomerController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new { cust.Username }, "Username updated."));
     }
 
+    // ── Add / update the account's natal profile ────────────────────────────────
+    [HttpPatch("profile")]
+    [Authorize]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileDto dto)
+    {
+        if (!ModelState.IsValid) return BadRequest(ApiResponse<object>.Fail("Validation failed.", 400));
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        var cust = await _db.Customers.FindAsync(id);
+        if (cust is null) return NotFound(ApiResponse<object>.Fail("Account not found.", 404));
+
+        string? Enc(string? v) => string.IsNullOrWhiteSpace(v) ? null : FieldCrypto.Encrypt(v.Trim(), _encKey);
+        cust.Gender = string.IsNullOrWhiteSpace(dto.Gender) ? null : dto.Gender.Trim();
+        cust.Dob = Enc(dto.Dob);
+        cust.BirthTime = Enc(dto.BirthTime);
+        cust.LocationName = Enc(dto.LocationName);
+        cust.Latitude = dto.Latitude;
+        cust.Longitude = dto.Longitude;
+        cust.Timezone = string.IsNullOrWhiteSpace(dto.Timezone) ? null : dto.Timezone.Trim();
+        cust.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        string? Dec(string? s) { if (string.IsNullOrEmpty(s)) return null; try { return FieldCrypto.Decrypt(s, _encKey); } catch { return null; } }
+        return Ok(ApiResponse<CustomerProfileView>.Ok(new CustomerProfileView
+        {
+            Id = cust.Id, Email = cust.Email, Username = cust.Username, EmailConfirmed = cust.EmailConfirmed,
+            Gender = cust.Gender, Dob = Dec(cust.Dob), BirthTime = Dec(cust.BirthTime), LocationName = Dec(cust.LocationName),
+            Latitude = cust.Latitude, Longitude = cust.Longitude, Timezone = cust.Timezone,
+            HasProfile = !string.IsNullOrEmpty(cust.Dob) && cust.Latitude.HasValue && cust.Longitude.HasValue,
+        }, "Profile updated."));
+    }
+
     // ── Save a chart under the account ──────────────────────────────────────────
     [HttpPost("save-chart")]
     [Authorize]

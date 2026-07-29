@@ -34,6 +34,18 @@ public class UpdateUsernameDto
     [Required, StringLength(100, MinimumLength = 2)] public string Username { get; set; } = string.Empty;
 }
 
+/// <summary>Add / update the signed-in account's natal profile.</summary>
+public class UpdateProfileDto
+{
+    [StringLength(20)] public string? Gender { get; set; }
+    [StringLength(20)] public string? Dob { get; set; }
+    [StringLength(20)] public string? BirthTime { get; set; }
+    [StringLength(160)] public string? LocationName { get; set; }
+    [Range(-90, 90)] public double? Latitude { get; set; }
+    [Range(-180, 180)] public double? Longitude { get; set; }
+    [StringLength(80)] public string? Timezone { get; set; }
+}
+
 /// <summary>The signed-in account + its natal profile (decrypted), returned by
 /// GET /api/customer/me. HasProfile drives the "instant dashboard" on the front-end.</summary>
 public class CustomerProfileView
