@@ -244,7 +244,14 @@ public class CustomerController : ControllerBase
         var cust = await _db.Customers.FindAsync(id);
         if (cust is null) return NotFound(ApiResponse<object>.Fail("Account not found.", 404));
 
+        // 90-day cooldown — only bites once a profile has been saved before (first
+        // save is free; ProfileLastUpdated is null until then).
+        if (cust.ProfileLastUpdated is DateTime last && DateTime.UtcNow < last.AddDays(90))
+            return BadRequest(ApiResponse<object>.Fail(
+                "မွေးဇာတာ အချက်အလက်များကို ရက်ပေါင်း 90 လျှင် တစ်ကြိမ်သာ ပြောင်းလဲနိုင်ပါသည်။ (You can only update your natal profile once every 90 days).", 400));
+
         string? Enc(string? v) => string.IsNullOrWhiteSpace(v) ? null : FieldCrypto.Encrypt(v.Trim(), _encKey);
+        if (!string.IsNullOrWhiteSpace(dto.Username)) cust.Username = dto.Username.Trim();
         cust.Gender = string.IsNullOrWhiteSpace(dto.Gender) ? null : dto.Gender.Trim();
         cust.Dob = Enc(dto.Dob);
         cust.BirthTime = Enc(dto.BirthTime);
@@ -252,6 +259,7 @@ public class CustomerController : ControllerBase
         cust.Latitude = dto.Latitude;
         cust.Longitude = dto.Longitude;
         cust.Timezone = string.IsNullOrWhiteSpace(dto.Timezone) ? null : dto.Timezone.Trim();
+        cust.ProfileLastUpdated = DateTime.UtcNow;
         cust.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 

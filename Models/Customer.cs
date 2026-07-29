@@ -23,6 +23,7 @@ public class Customer
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public string? Timezone { get; set; }        // IANA tz id, e.g. "Asia/Yangon"
+    public DateTime? ProfileLastUpdated { get; set; }   // 90-day edit cooldown anchor
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

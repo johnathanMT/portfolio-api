@@ -55,9 +55,10 @@ public class AdminUserView
     public string? Timezone { get; set; }
 }
 
-/// <summary>Add / update the signed-in account's natal profile.</summary>
+/// <summary>Add / update the signed-in account's natal profile (and display name).</summary>
 public class UpdateProfileDto
 {
+    [StringLength(100, MinimumLength = 2)] public string? Username { get; set; }
     [StringLength(20)] public string? Gender { get; set; }
     [StringLength(20)] public string? Dob { get; set; }
     [StringLength(20)] public string? BirthTime { get; set; }
