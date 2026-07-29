@@ -90,6 +90,15 @@ builder.Services.AddSingleton<IImageService, CloudinaryImageService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddMemoryCache();   // resend-confirmation anti-spam throttling
 
+// AI reading: typed HttpClient → Google Gemini (generativelanguage.googleapis.com).
+// Config via AI__GeminiApiKey / AI__Model (default gemini-2.0-flash) / AI__BaseUrl.
+// 60s timeout (LLMs are slow). To switch back to an OpenAI-compatible provider,
+// register OpenAiReadingService instead (it remains in the codebase).
+builder.Services.AddHttpClient<IAiReadingService, GeminiReadingService>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // ─────────────────────────────────────────────────────────────
 // 3. FLUENT VALIDATION
 // ─────────────────────────────────────────────────────────────
@@ -231,6 +240,16 @@ builder.Services.AddRateLimiter(options =>
     {
         opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("AstrologyWindowSeconds", 60));
         opt.PermitLimit = rlSection.GetValue("AstrologyPermitLimit", 20);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 0;
+    });
+
+    // AI reading: each call fans out to a paid LLM provider, so cap it tightly
+    // per-IP to prevent cost-exhaustion abuse of the public endpoint.
+    options.AddFixedWindowLimiter("ai", opt =>
+    {
+        opt.Window = TimeSpan.FromSeconds(rlSection.GetValue("AiWindowSeconds", 60));
+        opt.PermitLimit = rlSection.GetValue("AiPermitLimit", 5);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
         opt.QueueLimit = 0;
     });
@@ -460,6 +479,49 @@ CREATE TABLE IF NOT EXISTS CustomerCharts (
   CreatedAt DATETIME(6) NOT NULL,
   KEY ix_customerchart_owner (CustomerId)
 ) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS AiReadings (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NOT NULL,
+  Title TEXT NULL,
+  Markdown MEDIUMTEXT NULL,
+  Model VARCHAR(60) NULL,
+  CreatedAt DATETIME(6) NOT NULL,
+  KEY ix_aireading_owner (CustomerId)
+) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ResearchPredictions (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NOT NULL,
+  CreatedAt VARCHAR(40) NOT NULL,
+  WindowStart VARCHAR(20) NOT NULL,
+  WindowEnd VARCHAR(20) NOT NULL,
+  Area VARCHAR(120) NULL,
+  Claim TEXT NULL,
+  Falsifier TEXT NULL,
+  BaseRate DOUBLE NOT NULL DEFAULT 0,
+  BaseRateSource VARCHAR(255) NULL,
+  Intensity INT NOT NULL DEFAULT 3,
+  Valence VARCHAR(20) NOT NULL DEFAULT 'mixed',
+  Hash VARCHAR(80) NULL,
+  Outcome VARCHAR(20) NULL,
+  ReviewedAt VARCHAR(40) NULL,
+  Note TEXT NULL,
+  RowCreatedAt DATETIME(6) NOT NULL,
+  KEY ix_researchpred_owner (CustomerId)
+) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ResearchJournalEntries (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NOT NULL,
+  Month VARCHAR(10) NOT NULL,
+  Category VARCHAR(120) NULL,
+  Description TEXT NULL,
+  Magnitude INT NOT NULL DEFAULT 2,
+  CreatedAt VARCHAR(40) NOT NULL,
+  RowCreatedAt DATETIME(6) NOT NULL,
+  KEY ix_researchjourn_owner (CustomerId)
+) CHARACTER SET=utf8mb4;");
         // Additive CRM columns on RemedyRequests (idempotent — ignore "column exists").
         foreach (var alter in new[]
         {
@@ -469,7 +531,7 @@ CREATE TABLE IF NOT EXISTS CustomerCharts (
         {
             try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }
         }
-        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts).");
+        logger.LogInformation("Astrology tables ensured (RemedyRequests, QuerentCharts, PdfRequests, Customers, CustomerCharts, AiReadings, ResearchPredictions, ResearchJournalEntries).");
     }
     catch (Exception ex)
     {

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -25,14 +26,16 @@ public class AstrologyController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IEmailService _email;
     private readonly IConfiguration _cfg;
+    private readonly IAiReadingService _ai;
     private readonly string _encKey;
 
-    public AstrologyController(IAstrologyService service, AppDbContext db, IEmailService email, IConfiguration cfg)
+    public AstrologyController(IAstrologyService service, AppDbContext db, IEmailService email, IConfiguration cfg, IAiReadingService ai)
     {
         _service = service;
         _db = db;
         _email = email;
         _cfg = cfg;
+        _ai = ai;
         // Dedicated key preferred; falls back to the JWT key so it works out of the box.
         _encKey = cfg["Astrology:EncryptionKey"] ?? cfg["Jwt:Key"] ?? "astrology-fallback-key-set-in-env";
     }
@@ -358,5 +361,103 @@ public class AstrologyController : ControllerBase
 </body></html>
 """;
         return tpl.Replace("{{LINK}}", link);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  AI Reading — generate a personalised reading from a summarised chart.
+    //  Public + rate-limited ("ai"). If a valid customer token is present, the
+    //  reading is persisted to that account (Title + Markdown encrypted at rest).
+    // ─────────────────────────────────────────────────────────────────────────────
+    [HttpPost("generate-ai-reading")]
+    [EnableRateLimiting("ai")]
+    [ProducesResponseType(typeof(ApiResponse<AiReadingResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GenerateAiReading([FromBody] AiReadingRequestDto req, CancellationToken ct)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<object>.Fail(
+                "Validation failed.", 400,
+                ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList()));
+
+        var result = await _ai.GenerateAsync(req, ct);
+
+        // Auto-persist for signed-in customers so the reading isn't lost.
+        if (result.Success && result.Data is not null && TryCustomerId(out int cid))
+        {
+            try
+            {
+                var title = string.IsNullOrWhiteSpace(req.Name)
+                    ? $"Reading · {DateTime.UtcNow:yyyy-MM-dd}"
+                    : $"{req.Name!.Trim()} · {DateTime.UtcNow:yyyy-MM-dd}";
+                var row = new AiReading
+                {
+                    CustomerId = cid,
+                    Title = FieldCrypto.Encrypt(title, _encKey),
+                    Markdown = FieldCrypto.Encrypt(result.Data.Markdown, _encKey),
+                    Model = result.Data.Model,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                _db.AiReadings.Add(row);
+                await _db.SaveChangesAsync(ct);
+                result.Data.SavedId = row.Id;
+            }
+            catch (Exception)
+            {
+                // Persistence is best-effort; never fail the reading over a save error.
+            }
+        }
+
+        return StatusCode(result.StatusCode, result);
+    }
+
+    /// <summary>List the signed-in account's saved AI readings (decrypted, newest first).</summary>
+    [HttpGet("my-readings")]
+    [Authorize]
+    public async Task<IActionResult> MyReadings()
+    {
+        if (!TryCustomerId(out int id))
+            return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+
+        var rows = await _db.AiReadings
+            .Where(r => r.CustomerId == id)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(100)
+            .ToListAsync();
+
+        var view = rows.Select(r => new AiReadingView
+        {
+            Id = r.Id,
+            Title = FieldCrypto.Decrypt(r.Title, _encKey),
+            Markdown = FieldCrypto.Decrypt(r.Markdown, _encKey),
+            Model = r.Model,
+            CreatedAt = r.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+        }).ToList();
+
+        return Ok(ApiResponse<List<AiReadingView>>.Ok(view, "OK"));
+    }
+
+    /// <summary>Delete one of the account's saved readings.</summary>
+    [HttpDelete("my-readings/{id:int}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteReading(int id)
+    {
+        if (!TryCustomerId(out int cid))
+            return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+
+        var row = await _db.AiReadings.FirstOrDefaultAsync(r => r.Id == id && r.CustomerId == cid);
+        if (row is null) return NotFound(ApiResponse<object>.Fail("Reading not found.", 404));
+
+        _db.AiReadings.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse.OkNoData("Deleted."));
+    }
+
+    // Reads the customer id from a customer JWT, if one was supplied. Returns false
+    // for anonymous callers or admin tokens (this endpoint is not [Authorize]d).
+    private bool TryCustomerId(out int id)
+    {
+        id = 0;
+        if (User.FindFirst("ctype")?.Value != "customer") return false;
+        return int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out id);
     }
 }

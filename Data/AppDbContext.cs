@@ -20,6 +20,9 @@ public class AppDbContext : DbContext
     public DbSet<PdfRequest>      PdfRequests      { get; set; }
     public DbSet<Customer>        Customers        { get; set; }
     public DbSet<CustomerChart>   CustomerCharts   { get; set; }
+    public DbSet<AiReading>       AiReadings       { get; set; }
+    public DbSet<ResearchPrediction>   ResearchPredictions   { get; set; }
+    public DbSet<ResearchJournalEntry> ResearchJournalEntries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
