@@ -103,14 +103,24 @@ public class CustomerController : ControllerBase
             return Conflict(ApiResponse<object>.Fail("This email is already registered.", 409));
 
         string token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        string? Enc(string? v) => string.IsNullOrWhiteSpace(v) ? null : FieldCrypto.Encrypt(v.Trim(), _encKey);
         var cust = new Customer
         {
             Email = email,
             Username = dto.Username.Trim(),
+            // Banking-standard hashing: BCrypt, work factor 12 (≈250ms/verify).
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password, workFactor: 12),
             EmailConfirmed = false,
             VerifyToken = token,
             VerifyExpiry = DateTime.UtcNow.AddHours(48),
+            // Natal profile (PII fields encrypted at rest).
+            Gender = string.IsNullOrWhiteSpace(dto.Gender) ? null : dto.Gender.Trim(),
+            Dob = Enc(dto.Dob),
+            BirthTime = Enc(dto.BirthTime),
+            LocationName = Enc(dto.LocationName),
+            Latitude = dto.Latitude,
+            Longitude = dto.Longitude,
+            Timezone = string.IsNullOrWhiteSpace(dto.Timezone) ? null : dto.Timezone.Trim(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -187,7 +197,24 @@ public class CustomerController : ControllerBase
         if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
         var cust = await _db.Customers.FindAsync(id);
         if (cust is null) return NotFound(ApiResponse<object>.Fail("Account not found.", 404));
-        return Ok(ApiResponse<object>.Ok(new { cust.Id, cust.Email, cust.Username, cust.EmailConfirmed }, "OK"));
+
+        string? Dec(string? s) { if (string.IsNullOrEmpty(s)) return null; try { return FieldCrypto.Decrypt(s, _encKey); } catch { return null; } }
+        var view = new CustomerProfileView
+        {
+            Id = cust.Id,
+            Email = cust.Email,
+            Username = cust.Username,
+            EmailConfirmed = cust.EmailConfirmed,
+            Gender = cust.Gender,
+            Dob = Dec(cust.Dob),
+            BirthTime = Dec(cust.BirthTime),
+            LocationName = Dec(cust.LocationName),
+            Latitude = cust.Latitude,
+            Longitude = cust.Longitude,
+            Timezone = cust.Timezone,
+            HasProfile = !string.IsNullOrEmpty(cust.Dob) && cust.Latitude.HasValue && cust.Longitude.HasValue,
+        };
+        return Ok(ApiResponse<CustomerProfileView>.Ok(view, "OK"));
     }
 
     // ── Update own username ─────────────────────────────────────────────────────

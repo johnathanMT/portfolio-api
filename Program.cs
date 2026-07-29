@@ -466,6 +466,9 @@ CREATE TABLE IF NOT EXISTS Customers (
   PasswordHash TEXT NOT NULL,
   EmailConfirmed TINYINT(1) NOT NULL DEFAULT 0,
   VerifyToken VARCHAR(140) NULL, VerifyExpiry DATETIME(6) NULL,
+  Gender VARCHAR(20) NULL,
+  Dob TEXT NULL, BirthTime TEXT NULL, LocationName TEXT NULL,
+  Latitude DOUBLE NULL, Longitude DOUBLE NULL, Timezone VARCHAR(80) NULL,
   CreatedAt DATETIME(6) NOT NULL, UpdatedAt DATETIME(6) NOT NULL,
   UNIQUE KEY uq_customer_email (Email)
 ) CHARACTER SET=utf8mb4;");
@@ -547,6 +550,13 @@ CREATE TABLE IF NOT EXISTS ReadingRequests (
             "ALTER TABLE RemedyRequests ADD COLUMN Notes TEXT NULL",
             "ALTER TABLE ReadingRequests ADD COLUMN PdfSent TINYINT(1) NOT NULL DEFAULT 0",
             "ALTER TABLE ReadingRequests ADD COLUMN ClientEmail TEXT NULL",
+            "ALTER TABLE Customers ADD COLUMN Gender VARCHAR(20) NULL",
+            "ALTER TABLE Customers ADD COLUMN Dob TEXT NULL",
+            "ALTER TABLE Customers ADD COLUMN BirthTime TEXT NULL",
+            "ALTER TABLE Customers ADD COLUMN LocationName TEXT NULL",
+            "ALTER TABLE Customers ADD COLUMN Latitude DOUBLE NULL",
+            "ALTER TABLE Customers ADD COLUMN Longitude DOUBLE NULL",
+            "ALTER TABLE Customers ADD COLUMN Timezone VARCHAR(80) NULL",
         })
         {
             try { await db.Database.ExecuteSqlRawAsync(alter); } catch { /* column already present */ }
