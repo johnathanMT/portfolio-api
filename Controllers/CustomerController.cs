@@ -393,6 +393,7 @@ public class CustomerController : ControllerBase
     public async Task<IActionResult> AdminUsers()
     {
         var rows = await _db.Customers.OrderByDescending(c => c.CreatedAt).Take(2000).ToListAsync();
+        string? Dec(string? val) { if (string.IsNullOrEmpty(val)) return null; try { return FieldCrypto.Decrypt(val, _encKey); } catch { return null; } }
         var view = rows.Select(c => new AdminUserView
         {
             Id = c.Id,
@@ -402,6 +403,13 @@ public class CustomerController : ControllerBase
             EmailConfirmed = c.EmailConfirmed,
             HasProfile = !string.IsNullOrEmpty(c.Dob) && c.Latitude.HasValue && c.Longitude.HasValue,
             CreatedAt = c.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+            Gender = c.Gender,
+            Dob = Dec(c.Dob),
+            BirthTime = Dec(c.BirthTime),
+            LocationName = Dec(c.LocationName),
+            Latitude = c.Latitude,
+            Longitude = c.Longitude,
+            Timezone = c.Timezone,
         }).ToList();
         return Ok(ApiResponse<List<AdminUserView>>.Ok(view, "OK"));
     }

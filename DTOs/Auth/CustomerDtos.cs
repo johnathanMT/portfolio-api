@@ -34,7 +34,8 @@ public class UpdateUsernameDto
     [Required, StringLength(100, MinimumLength = 2)] public string Username { get; set; } = string.Empty;
 }
 
-/// <summary>Admin listing of a registered user account.</summary>
+/// <summary>Admin listing of a registered user account (with decrypted natal
+/// profile so the admin can render the account's chart inline).</summary>
 public class AdminUserView
 {
     public int Id { get; set; }
@@ -44,6 +45,14 @@ public class AdminUserView
     public bool EmailConfirmed { get; set; }
     public bool HasProfile { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
+
+    public string? Gender { get; set; }
+    public string? Dob { get; set; }
+    public string? BirthTime { get; set; }
+    public string? LocationName { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public string? Timezone { get; set; }
 }
 
 /// <summary>Add / update the signed-in account's natal profile.</summary>
