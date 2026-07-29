@@ -190,10 +190,38 @@ public class CustomerController : ControllerBase
     public async Task<IActionResult> SaveChart([FromBody] SaveChartDto dto)
     {
         if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+
+        var name = (dto.Name ?? string.Empty).Trim();
+
+        // ── Deduplication / upsert ──────────────────────────────────────────────
+        // Name / BirthDate / BirthTime are AES-GCM encrypted with a RANDOM nonce, so
+        // the same plaintext yields different ciphertext every time — we cannot match
+        // on the encrypted columns in SQL. Instead we decrypt this customer's charts
+        // (capped at 100) and compare the plaintext. On a match we UPDATE that row
+        // rather than inserting a duplicate.
+        var mine = await _db.CustomerCharts.Where(c => c.CustomerId == id).ToListAsync();
+        string Dec(string cipher) { try { return FieldCrypto.Decrypt(cipher, _encKey); } catch { return string.Empty; } }
+        var existing = mine.FirstOrDefault(c =>
+            string.Equals(Dec(c.Name).Trim(), name, StringComparison.OrdinalIgnoreCase)
+            && Dec(c.BirthDate) == dto.BirthDate
+            && Dec(c.BirthTime) == dto.BirthTime);
+
+        if (existing is not null)
+        {
+            // Refresh the mutable fields + timestamp; no duplicate row is created.
+            existing.Gender = dto.Gender;
+            existing.TimeZone = dto.TimeZone;
+            existing.Location = FieldCrypto.Encrypt($"{dto.Latitude},{dto.Longitude}", _encKey);
+            existing.NayNan = dto.NayNan;
+            existing.CreatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return Ok(ApiResponse<object>.Ok(new { existing.Id, deduped = true }, "Chart already saved — updated."));
+        }
+
         var row = new CustomerChart
         {
             CustomerId = id,
-            Name = FieldCrypto.Encrypt(dto.Name, _encKey),
+            Name = FieldCrypto.Encrypt(name, _encKey),
             Gender = dto.Gender,
             BirthDate = FieldCrypto.Encrypt(dto.BirthDate, _encKey),
             BirthTime = FieldCrypto.Encrypt(dto.BirthTime, _encKey),
@@ -204,7 +232,7 @@ public class CustomerController : ControllerBase
         };
         _db.CustomerCharts.Add(row);
         await _db.SaveChangesAsync();
-        return Ok(ApiResponse<object>.Ok(new { row.Id }, "Chart saved to your account."));
+        return Ok(ApiResponse<object>.Ok(new { row.Id, deduped = false }, "Chart saved to your account."));
     }
 
     // ── List the account's saved charts (decrypted) → form autofill ─────────────
