@@ -33,14 +33,16 @@ public class CustomerController : ControllerBase
     private readonly IEmailService _email;
     private readonly IConfiguration _cfg;
     private readonly IMemoryCache _cache;
+    private readonly ILogger<CustomerController> _log;
     private readonly string _encKey;
 
-    public CustomerController(AppDbContext db, IEmailService email, IConfiguration cfg, IMemoryCache cache)
+    public CustomerController(AppDbContext db, IEmailService email, IConfiguration cfg, IMemoryCache cache, ILogger<CustomerController> log)
     {
         _db = db;
         _email = email;
         _cfg = cfg;
         _cache = cache;
+        _log = log;
         _encKey = cfg["Astrology:EncryptionKey"] ?? cfg["Jwt:Key"] ?? "astrology-fallback-key-set-in-env";
     }
 
@@ -117,11 +119,25 @@ public class CustomerController : ControllerBase
 
         string apiBase = (_cfg["App:ApiBase"] ?? "https://myweb-zqv1.onrender.com").TrimEnd('/');
         string link = $"{apiBase}/api/customer/verify-email?token={token}";
-        bool sent = await _email.SendAsync(email, "Vedin — သင့်အကောင့်ကို အတည်ပြုပါ", VerifyEmailHtml(link));
 
-        return Ok(ApiResponse<object>.Ok(new { emailSent = sent }, sent
-            ? "Account created — please check your email to confirm your address."
-            : "Account created, but the confirmation email could not be sent (SMTP not configured)."));
+        // Sending is the step that fails when SMTP is misconfigured. Wrap it so a
+        // provider exception surfaces as a clear 400 instead of a raw 500. The
+        // account row already exists, so the querent can retry via resend-confirmation.
+        bool sent;
+        try
+        {
+            sent = await _email.SendAsync(email, "Vedin — သင့်အကောင့်ကို အတည်ပြုပါ", VerifyEmailHtml(link));
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Confirmation email failed to send for {Email}.", email);
+            return BadRequest(ApiResponse<object>.Fail("Failed to send confirmation email. Please check server SMTP settings.", 400));
+        }
+        if (!sent)
+            return BadRequest(ApiResponse<object>.Fail("Failed to send confirmation email. Please check server SMTP settings.", 400));
+
+        return Ok(ApiResponse<object>.Ok(new { emailSent = true },
+            "Account created — please check your email to confirm your address."));
     }
 
     // ── Confirm email (link target) — returns a small HTML page ─────────────────
@@ -139,7 +155,12 @@ public class CustomerController : ControllerBase
         cust.VerifyExpiry = null;
         cust.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return base.Content(VerifyPageHtml(true), "text/html");
+
+        // Auto-login: mint a JWT and bounce back to the Vedin page with it, so the
+        // front-end can log the querent in automatically (no manual sign-in needed).
+        var loginToken = GenerateJwt(cust);
+        var frontendUrl = (_cfg["Frontend:Url"] ?? "https://myothant.dev").TrimEnd('/');
+        return Redirect($"{frontendUrl}/jyotish?verified=true&token={Uri.EscapeDataString(loginToken)}");
     }
 
     // ── Login (only after email confirmed) ──────────────────────────────────────
