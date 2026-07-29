@@ -14,7 +14,8 @@ namespace PortfolioApi.Services;
 ///
 /// Config (environment variables shown in double-underscore form):
 ///   AI__GeminiApiKey  — Google AI Studio API key (required; endpoint 503s without it)
-///   AI__Model         — model id, default "gemini-2.0-flash"
+///   AI__Model         — model id, default "gemini-3.6-flash" (a GA model — older
+///                       ids like gemini-1.5-pro / gemini-2.0-flash are RETIRED and 404)
 ///   AI__BaseUrl       — default "https://generativelanguage.googleapis.com/v1beta"
 ///
 /// Back-compat: if AI__GeminiApiKey is unset it falls back to AI__OpenAiApiKey,
@@ -81,7 +82,9 @@ for reflection, computed precisely but interpreted with care.
                 "AI reading is not configured on the server yet.", 503);
         }
 
-        var model = string.IsNullOrWhiteSpace(_cfg["AI:Model"]) ? "gemini-2.0-flash" : _cfg["AI:Model"]!;
+        // Default to a GA model. Retired ids (gemini-1.5-*, gemini-2.0-*, and
+        // gemini-2.5-pro for new accounts) return 404 from generateContent.
+        var model = string.IsNullOrWhiteSpace(_cfg["AI:Model"]) ? "gemini-3.6-flash" : _cfg["AI:Model"]!;
         var baseUrl = (string.IsNullOrWhiteSpace(_cfg["AI:BaseUrl"])
             ? "https://generativelanguage.googleapis.com/v1beta"
             : _cfg["AI:BaseUrl"]!).TrimEnd('/');
