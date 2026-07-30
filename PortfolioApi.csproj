@@ -31,11 +31,6 @@
 
     <!-- Validation -->
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
-
-    <!-- Vedic astrology ephemeris — managed C# port of Swiss Ephemeris. Uses the
-         built-in Moshier model, so NO ephemeris data files need to be deployed.
-         If restore fails on this version, run: dotnet add package SwissEphNet -->
-    <PackageReference Include="SwissEphNet" Version="2.8.0.2" />
   </ItemGroup>
 
 </Project>

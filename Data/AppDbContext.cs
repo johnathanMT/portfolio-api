@@ -15,16 +15,6 @@ public class AppDbContext : DbContext
     public DbSet<MemoryTag>       MemoryTags       { get; set; }
     public DbSet<FarewellRsvp>    FarewellRsvps    { get; set; }
     public DbSet<Poem>            Poems            { get; set; }
-    public DbSet<RemedyRequest>   RemedyRequests   { get; set; }
-    public DbSet<QuerentChart>    QuerentCharts    { get; set; }
-    public DbSet<PdfRequest>      PdfRequests      { get; set; }
-    public DbSet<Customer>        Customers        { get; set; }
-    public DbSet<CustomerChart>   CustomerCharts   { get; set; }
-    public DbSet<AiReading>       AiReadings       { get; set; }
-    public DbSet<ResearchPrediction>   ResearchPredictions   { get; set; }
-    public DbSet<ResearchJournalEntry> ResearchJournalEntries { get; set; }
-    public DbSet<ReadingRequest>       ReadingRequests       { get; set; }
-    public DbSet<ConsultationMessage>  ConsultationMessages  { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
