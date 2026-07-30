@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using PortfolioApi.Common;
 using PortfolioApi.Data;
 using PortfolioApi.DTOs.Astrology;
@@ -30,15 +31,17 @@ public class AstrologyController : ControllerBase
     private readonly IEmailService _email;
     private readonly IConfiguration _cfg;
     private readonly IAiReadingService _ai;
+    private readonly IMemoryCache _cache;
     private readonly string _encKey;
 
-    public AstrologyController(IAstrologyService service, AppDbContext db, IEmailService email, IConfiguration cfg, IAiReadingService ai)
+    public AstrologyController(IAstrologyService service, AppDbContext db, IEmailService email, IConfiguration cfg, IAiReadingService ai, IMemoryCache cache)
     {
         _service = service;
         _db = db;
         _email = email;
         _cfg = cfg;
         _ai = ai;
+        _cache = cache;
         // Dedicated key preferred; falls back to the JWT key so it works out of the box.
         _encKey = cfg["Astrology:EncryptionKey"] ?? cfg["Jwt:Key"] ?? "astrology-fallback-key-set-in-env";
     }
@@ -60,7 +63,30 @@ public class AstrologyController : ControllerBase
                 "Validation failed.", 400,
                 ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList()));
 
-        var result = _service.ComputeRasiChart(req);
+        // ── Server-side compute cache ────────────────────────────────────────────
+        // ComputeRasiChart is a pure, deterministic Swiss Ephemeris calculation:
+        // identical birth inputs always yield the identical chart. Caching the
+        // result keyed on those inputs turns repeat "check chart" clicks (same
+        // person re-opening, switching tabs, retries) into instant memory hits and
+        // takes the heavy ephemeris math off the CPU. Output is public (returned to
+        // the caller anyway), so there's no per-user data-leak risk.
+        var cacheKey = "chart:" +
+            $"{req.Year:0000}-{req.Month:00}-{req.Day:00}T{req.Hour:00}:{req.Minute:00}:{req.Second:00}|" +
+            $"{req.TimeZone}|{req.Latitude:F5}|{req.Longitude:F5}|{req.Ayanamsa?.ToLowerInvariant()}";
+
+        if (!_cache.TryGetValue(cacheKey, out ApiResponse<BirthChartData>? result) || result is null)
+        {
+            result = _service.ComputeRasiChart(req);
+            // Only cache successful computes; sliding + absolute cap keeps memory bounded.
+            if (result.StatusCode == 200)
+                _cache.Set(cacheKey, result, new MemoryCacheEntryOptions
+                {
+                    SlidingExpiration = TimeSpan.FromHours(6),
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24),
+                    Size = 1,
+                });
+        }
+
         return result.StatusCode switch
         {
             200 => Ok(result),

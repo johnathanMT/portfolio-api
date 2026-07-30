@@ -278,6 +278,30 @@ builder.Services.AddRateLimiter(options =>
 // 7. SWAGGER / OPENAPI with JWT support
 // ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+
+// ─────────────────────────────────────────────────────────────
+// 7b. RESPONSE COMPRESSION  — Brotli + Gzip
+//     Shrinks JSON payloads ~70-85% before they hit the wire, which is the
+//     single biggest first-load win on slow mobile connections. Brotli is
+//     preferred (smaller); Gzip is the universal fallback for older clients.
+//     EnableForHttps=true because Render terminates TLS at the edge — without
+//     this flag ASP.NET would skip compression on every (HTTPS) request.
+// ─────────────────────────────────────────────────────────────
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+    // Compress JSON (default text types already covered) — add a couple explicitly.
+    options.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes.Concat(
+        new[] { "application/json", "application/json; charset=utf-8", "image/svg+xml" });
+});
+// Favour ratio over CPU: these payloads are small and the edge caches them.
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o =>
+    o.Level = System.IO.Compression.CompressionLevel.Optimal);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o =>
+    o.Level = System.IO.Compression.CompressionLevel.Optimal);
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -342,6 +366,10 @@ var isDev = app.Environment.IsDevelopment();
 
 // A. Reverse-proxy headers FIRST — real scheme + client IP for everything below.
 app.UseForwardedHeaders();
+
+// A.5 Response compression — as early as possible so every downstream response
+//      (JSON bodies, SVG) is Brotli/Gzip-compressed before leaving the server.
+app.UseResponseCompression();
 
 // B. Global exception handler — early so it catches everything that follows.
 app.UseMiddleware<ExceptionMiddleware>();
