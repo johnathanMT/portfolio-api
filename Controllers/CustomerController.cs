@@ -158,7 +158,7 @@ public class CustomerController : ControllerBase
         var cust = string.IsNullOrWhiteSpace(token) ? null
             : await _db.Customers.FirstOrDefaultAsync(c => c.VerifyToken == token);
         if (cust is null || cust.VerifyExpiry is null || cust.VerifyExpiry < DateTime.UtcNow)
-            return base.Content(VerifyPageHtml(false), "text/html");
+            return HtmlPage(VerifyPageHtml(false));
 
         cust.EmailConfirmed = true;
         cust.VerifyToken = null;
@@ -166,11 +166,40 @@ public class CustomerController : ControllerBase
         cust.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Auto-login: mint a JWT and bounce back to the Vedin page with it, so the
-        // front-end can log the querent in automatically (no manual sign-in needed).
+        // Auto-login: mint a JWT and bounce back to the Vedin page with it. We return
+        // a rendered HTML page (text/html; charset=utf-8 → never downloadable) that
+        // navigates to the front-end, rather than a bare 302 (some in-app/email
+        // browsers mishandle redirects and download the response instead).
         var loginToken = GenerateJwt(cust);
         var frontendUrl = (_cfg["Frontend:Url"] ?? "https://myothant.dev").TrimEnd('/');
-        return Redirect($"{frontendUrl}/jyotish?verified=true&token={Uri.EscapeDataString(loginToken)}");
+        var dest = $"{frontendUrl}/jyotish?verified=true&token={Uri.EscapeDataString(loginToken)}";
+        return HtmlPage(VerifySuccessHtml(dest));
+    }
+
+    /// <summary>Always emit an explicit text/html; charset=utf-8 response so the
+    /// browser renders the page instead of downloading it.</summary>
+    private ContentResult HtmlPage(string html) =>
+        new() { Content = html, ContentType = "text/html; charset=utf-8", StatusCode = 200 };
+
+    private static string VerifySuccessHtml(string dest)
+    {
+        var href = System.Net.WebUtility.HtmlEncode(dest);
+        var js = System.Text.Json.JsonSerializer.Serialize(dest);   // safe JS string literal
+        return $$"""
+<!doctype html><html lang="my"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="1;url={{href}}">
+<title>Vedin — အကောင့် အတည်ပြုပြီး</title></head>
+<body style="margin:0;background:#0b0a14;color:#e8e3d6;font-family:Segoe UI,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
+  <div style="text-align:center;padding:40px">
+    <div style="font-size:52px;color:#22c55e">&#10003;</div>
+    <h1 style="color:#eab308;margin:.4em 0">အကောင့် အတည်ပြုပြီးပါပြီ</h1>
+    <p style="color:#b9b09b">Vedin သို့ အလိုအလျောက် ဝင်ရောက်နေပါသည်…</p>
+    <a href="{{href}}" style="color:#a855f7;text-decoration:none">ဆက်လက်ရန် &rarr;</a>
+  </div>
+  <script>setTimeout(function(){window.location.replace({{js}});},900);</script>
+</body></html>
+""";
     }
 
     // ── Login (only after email confirmed) ──────────────────────────────────────
