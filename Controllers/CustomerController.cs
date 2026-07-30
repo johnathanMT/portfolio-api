@@ -176,10 +176,9 @@ public class CustomerController : ControllerBase
         return HtmlPage(VerifySuccessHtml(dest));
     }
 
-    /// <summary>Always emit an explicit text/html; charset=utf-8 response so the
-    /// browser renders the page instead of downloading it.</summary>
-    private ContentResult HtmlPage(string html) =>
-        new() { Content = html, ContentType = "text/html; charset=utf-8", StatusCode = 200 };
+    /// <summary>Always emit explicit UTF-8 text/html so the browser renders the page
+    /// instead of downloading it.</summary>
+    private ContentResult HtmlPage(string html) => Content(html, "text/html", System.Text.Encoding.UTF8);
 
     private static string VerifySuccessHtml(string dest)
     {
@@ -510,6 +509,94 @@ public class CustomerController : ControllerBase
         });
         return File(pdf, "application/pdf", "vedin-reading.pdf");
     }
+
+    // ═══════════════════ IN-APP CONSULTATION MESSAGES (chat) ════════════════════
+    /// <summary>The signed-in customer's own consultation thread (also marks the
+    /// Sayar's replies as read).</summary>
+    [HttpGet("messages")]
+    [Authorize]
+    public async Task<IActionResult> MyMessages()
+    {
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        var rows = await _db.ConsultationMessages.Where(m => m.CustomerId == id).OrderBy(m => m.CreatedAt).Take(500).ToListAsync();
+        var unread = rows.Where(m => m.SenderRole == "Admin" && !m.IsRead).ToList();
+        if (unread.Count > 0) { unread.ForEach(m => m.IsRead = true); await _db.SaveChangesAsync(); }
+        return Ok(ApiResponse<List<MessageView>>.Ok(rows.Select(ToMsgView).ToList(), "OK"));
+    }
+
+    /// <summary>Customer posts a new question into their thread.</summary>
+    [HttpPost("messages")]
+    [Authorize]
+    [EnableRateLimiting("general")]
+    public async Task<IActionResult> SendMessage([FromBody] SendMessageDto dto)
+    {
+        if (!TryCustomerId(out int id)) return Unauthorized(ApiResponse<object>.Fail("Not a customer token.", 401));
+        if (!ModelState.IsValid || string.IsNullOrWhiteSpace(dto.Text)) return BadRequest(ApiResponse<object>.Fail("Message is empty.", 400));
+        var row = new ConsultationMessage { CustomerId = id, SenderRole = "Customer", MessageText = dto.Text.Trim(), CreatedAt = DateTime.UtcNow, IsRead = false };
+        _db.ConsultationMessages.Add(row);
+        await _db.SaveChangesAsync();
+        try
+        {
+            var adminEmail = _cfg["App:AdminEmail"] ?? _cfg["Smtp:User"];
+            if (!string.IsNullOrWhiteSpace(adminEmail))
+                await _email.SendAsync(adminEmail, "💬 မေးမြန်းချက်အသစ် — Vedin", $"<p>A customer sent a new consultation message.</p><blockquote>{System.Net.WebUtility.HtmlEncode(row.MessageText)}</blockquote>");
+        }
+        catch { /* best-effort */ }
+        return Ok(ApiResponse<MessageView>.Ok(ToMsgView(row), "Sent."));
+    }
+
+    // ── Admin: consultation threads ─────────────────────────────────────────────
+    [HttpGet("admin/message-threads")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminMessageThreads()
+    {
+        var msgs = await _db.ConsultationMessages.OrderBy(m => m.CreatedAt).ToListAsync();
+        var ids = msgs.Select(m => m.CustomerId).Distinct().ToList();
+        var custs = await _db.Customers.Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id);
+        var threads = msgs.GroupBy(m => m.CustomerId).Select(g =>
+        {
+            var last = g.Last();
+            custs.TryGetValue(g.Key, out var c);
+            return new MessageThreadView
+            {
+                CustomerId = g.Key,
+                Username = c?.Username ?? "(deleted)",
+                Email = c?.Email ?? "",
+                LastMessage = last.MessageText.Length > 90 ? last.MessageText[..90] + "…" : last.MessageText,
+                LastAt = last.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                Unread = g.Count(m => m.SenderRole == "Customer" && !m.IsRead),
+            };
+        }).OrderByDescending(t => t.LastAt).ToList();
+        return Ok(ApiResponse<List<MessageThreadView>>.Ok(threads, "OK"));
+    }
+
+    [HttpGet("admin/messages/{customerId:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminMessages(int customerId)
+    {
+        var rows = await _db.ConsultationMessages.Where(m => m.CustomerId == customerId).OrderBy(m => m.CreatedAt).Take(500).ToListAsync();
+        var unread = rows.Where(m => m.SenderRole == "Customer" && !m.IsRead).ToList();
+        if (unread.Count > 0) { unread.ForEach(m => m.IsRead = true); await _db.SaveChangesAsync(); }
+        return Ok(ApiResponse<List<MessageView>>.Ok(rows.Select(ToMsgView).ToList(), "OK"));
+    }
+
+    [HttpPost("admin/messages/{customerId:int}")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> AdminSendMessage(int customerId, [FromBody] SendMessageDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto?.Text)) return BadRequest(ApiResponse<object>.Fail("Message is empty.", 400));
+        if (!await _db.Customers.AnyAsync(c => c.Id == customerId)) return NotFound(ApiResponse<object>.Fail("Customer not found.", 404));
+        var row = new ConsultationMessage { CustomerId = customerId, SenderRole = "Admin", MessageText = dto.Text.Trim(), CreatedAt = DateTime.UtcNow, IsRead = false };
+        _db.ConsultationMessages.Add(row);
+        await _db.SaveChangesAsync();
+        return Ok(ApiResponse<MessageView>.Ok(ToMsgView(row), "Sent."));
+    }
+
+    private static MessageView ToMsgView(ConsultationMessage m) => new()
+    {
+        Id = m.Id, SenderRole = m.SenderRole, Text = m.MessageText,
+        CreatedAt = m.CreatedAt.ToString("yyyy-MM-dd HH:mm"), IsRead = m.IsRead,
+    };
 
     // ── helpers ─────────────────────────────────────────────────────────────────
     private bool TryCustomerId(out int id)

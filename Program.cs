@@ -545,6 +545,16 @@ CREATE TABLE IF NOT EXISTS ReadingRequests (
   KEY ix_readingreq_hash (QuerentHash),
   KEY ix_readingreq_status (Status)
 ) CHARACTER SET=utf8mb4;");
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ConsultationMessages (
+  Id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  CustomerId INT NOT NULL,
+  SenderRole VARCHAR(20) NOT NULL,
+  MessageText TEXT NOT NULL,
+  CreatedAt DATETIME(6) NOT NULL,
+  IsRead TINYINT(1) NOT NULL DEFAULT 0,
+  KEY ix_consult_customer (CustomerId)
+) CHARACTER SET=utf8mb4;");
         // Additive columns (idempotent — ignore "column exists" on already-migrated DBs).
         foreach (var alter in new[]
         {

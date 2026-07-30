@@ -38,14 +38,14 @@ public class GeminiReadingService : IAiReadingService
     private const string SystemPrompt =
 """
 You are an expert professional Vedic astrologer who writes under the pen name
-'ဆရာဘုန်းမင်းသိုက်ဒင်' (Saya Phone Myint Thaik Din). Your task is to analyse the
+'ဆရာဘုန်းမင်းသိုက်ဒင်' (Sayar Bhone Min Thike Din). Your task is to analyse the
 querent's computed astrological chart data (provided in the user message) and write a
 majestic, deeply empathetic, wise, and highly accurate life reading in the persona of
 a masterful Sayar.
 
 ════════════════════════ ABSOLUTE RULES (never violate) ════════════════════════
 0. PEN NAME — Always introduce yourself and sign the reading using ONLY the pen name
-   'ဆရာဘုန်းမင်းသိုက်ဒင်' (Saya Phone Myint Thaik Din). You must STRICTLY NEVER use,
+   'ဆရာဘုန်းမင်းသိုက်ဒင်' (Sayar Bhone Min Thike Din). You must STRICTLY NEVER use,
    mention, or reveal the real name 'Myo Thant Naing' / 'မျိုးသန့်နိုင်' anywhere.
 1. LANGUAGE — Write the ENTIRE reading in 100% fluent, grammatically correct, natural
    Burmese (မြန်မာ). DO NOT write any English sentences or phrases. The ONLY foreign
@@ -228,11 +228,11 @@ querent that the computation is precise but the reading is guidance for reflecti
         sb.AppendLine();
         sb.AppendLine("=== CHART SNAPSHOT (computed by the engine) ===");
 
-        if (!string.IsNullOrWhiteSpace(r.Name))   sb.AppendLine($"Querent: {r.Name}" + (string.IsNullOrWhiteSpace(r.Gender) ? "" : $" ({r.Gender})"));
+        if (!string.IsNullOrWhiteSpace(r.Name)) sb.AppendLine($"Querent: {r.Name}" + (string.IsNullOrWhiteSpace(r.Gender) ? "" : $" ({r.Gender})"));
         if (!string.IsNullOrWhiteSpace(r.NayNan)) sb.AppendLine($"Myanmar birth-day sign (နေ့နံ): {r.NayNan}");
         if (!string.IsNullOrWhiteSpace(r.Ascendant)) sb.AppendLine($"Ascendant (Lagna): {r.Ascendant}");
-        if (!string.IsNullOrWhiteSpace(r.MoonSign))  sb.AppendLine($"Moon sign (Chandra Rasi): {r.MoonSign}");
-        if (!string.IsNullOrWhiteSpace(r.SunSign))   sb.AppendLine($"Sun sign: {r.SunSign}");
+        if (!string.IsNullOrWhiteSpace(r.MoonSign)) sb.AppendLine($"Moon sign (Chandra Rasi): {r.MoonSign}");
+        if (!string.IsNullOrWhiteSpace(r.SunSign)) sb.AppendLine($"Sun sign: {r.SunSign}");
 
         if (r.Placements.Count > 0)
         {
@@ -242,7 +242,7 @@ querent that the computation is precise but the reading is guidance for reflecti
             {
                 var bits = new List<string> { $"House {p.House}", p.Sign };
                 if (!string.IsNullOrWhiteSpace(p.Nakshatra)) bits.Add($"Nak. {p.Nakshatra}");
-                if (!string.IsNullOrWhiteSpace(p.Dignity))   bits.Add(p.Dignity!);
+                if (!string.IsNullOrWhiteSpace(p.Dignity)) bits.Add(p.Dignity!);
                 if (p.Retrograde) bits.Add("retrograde");
                 sb.AppendLine($"  - {p.Planet}: {string.Join(", ", bits)}");
             }

@@ -34,7 +34,7 @@ public class OpenAiReadingService : IAiReadingService
     private const string SystemPrompt =
 """
 You are an expert professional Vedic Astrologer who writes under the pen name
-'ဆရာဘုန်းမင်းသိုက်ဒင်' (Saya Phone Myint Thaik Din). Your tone is majestic, deeply
+'ဆရာဘုန်းမင်းသိုက်ဒင်' (Sayar Bhone Min Thike Din). Your tone is majestic, deeply
 empathetic, logically sound, and highly professional. You write ENTIRELY in elegant,
 fluent, natural Burmese (မြန်မာ) — never mix in English sentences (technical
 Sanskrit/Jyotish terms in Burmese transliteration are fine, e.g. ဒသာ, အန္တရ်ဒသာ,
@@ -114,7 +114,7 @@ for reflection, computed precisely but interpreted with care.
                 {
                     401 => "AI provider rejected the API key.",
                     429 => "AI provider is rate-limiting requests. Please try again shortly.",
-                    _   => $"AI provider error ({(int)resp.StatusCode}).",
+                    _ => $"AI provider error ({(int)resp.StatusCode}).",
                 };
                 return ApiResponse<AiReadingResponseDto>.Fail(friendly, 502);
             }
@@ -159,11 +159,11 @@ for reflection, computed precisely but interpreted with care.
         sb.AppendLine();
         sb.AppendLine("=== CHART SNAPSHOT ===");
 
-        if (!string.IsNullOrWhiteSpace(r.Name))   sb.AppendLine($"Querent: {r.Name}" + (string.IsNullOrWhiteSpace(r.Gender) ? "" : $" ({r.Gender})"));
+        if (!string.IsNullOrWhiteSpace(r.Name)) sb.AppendLine($"Querent: {r.Name}" + (string.IsNullOrWhiteSpace(r.Gender) ? "" : $" ({r.Gender})"));
         if (!string.IsNullOrWhiteSpace(r.NayNan)) sb.AppendLine($"Myanmar birth-day sign (နေ့နံ): {r.NayNan}");
         if (!string.IsNullOrWhiteSpace(r.Ascendant)) sb.AppendLine($"Ascendant (Lagna): {r.Ascendant}");
-        if (!string.IsNullOrWhiteSpace(r.MoonSign))  sb.AppendLine($"Moon sign (Chandra Rasi): {r.MoonSign}");
-        if (!string.IsNullOrWhiteSpace(r.SunSign))   sb.AppendLine($"Sun sign: {r.SunSign}");
+        if (!string.IsNullOrWhiteSpace(r.MoonSign)) sb.AppendLine($"Moon sign (Chandra Rasi): {r.MoonSign}");
+        if (!string.IsNullOrWhiteSpace(r.SunSign)) sb.AppendLine($"Sun sign: {r.SunSign}");
 
         if (r.Placements.Count > 0)
         {
@@ -173,7 +173,7 @@ for reflection, computed precisely but interpreted with care.
             {
                 var bits = new List<string> { $"House {p.House}", p.Sign };
                 if (!string.IsNullOrWhiteSpace(p.Nakshatra)) bits.Add($"Nak. {p.Nakshatra}");
-                if (!string.IsNullOrWhiteSpace(p.Dignity))   bits.Add(p.Dignity!);
+                if (!string.IsNullOrWhiteSpace(p.Dignity)) bits.Add(p.Dignity!);
                 if (p.Retrograde) bits.Add("retrograde");
                 sb.AppendLine($"  - {p.Planet}: {string.Join(", ", bits)}");
             }

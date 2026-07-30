@@ -55,6 +55,33 @@ public class AdminUserView
     public string? Timezone { get; set; }
 }
 
+/// <summary>Send a consultation chat message.</summary>
+public class SendMessageDto
+{
+    [Required, StringLength(4000, MinimumLength = 1)] public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>One chat message in a consultation thread.</summary>
+public class MessageView
+{
+    public int Id { get; set; }
+    public string SenderRole { get; set; } = string.Empty;   // Admin | Customer
+    public string Text { get; set; } = string.Empty;
+    public string CreatedAt { get; set; } = string.Empty;
+    public bool IsRead { get; set; }
+}
+
+/// <summary>Admin overview of a customer's consultation thread.</summary>
+public class MessageThreadView
+{
+    public int CustomerId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string LastMessage { get; set; } = string.Empty;
+    public string LastAt { get; set; } = string.Empty;
+    public int Unread { get; set; }
+}
+
 /// <summary>Add / update the signed-in account's natal profile (and display name).</summary>
 public class UpdateProfileDto
 {

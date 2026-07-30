@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<ResearchPrediction>   ResearchPredictions   { get; set; }
     public DbSet<ResearchJournalEntry> ResearchJournalEntries { get; set; }
     public DbSet<ReadingRequest>       ReadingRequests       { get; set; }
+    public DbSet<ConsultationMessage>  ConsultationMessages  { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
