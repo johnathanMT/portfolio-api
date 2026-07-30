@@ -166,37 +166,37 @@ public class CustomerController : ControllerBase
         cust.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Auto-login: mint a JWT and bounce back to the Vedin page with it. We return
-        // a rendered HTML page (text/html; charset=utf-8 → never downloadable) that
-        // navigates to the front-end, rather than a bare 302 (some in-app/email
-        // browsers mishandle redirects and download the response instead).
-        var loginToken = GenerateJwt(cust);
-        var frontendUrl = (_cfg["Frontend:Url"] ?? "https://myothant.dev").TrimEnd('/');
-        var dest = $"{frontendUrl}/jyotish?verified=true&token={Uri.EscapeDataString(loginToken)}";
-        return HtmlPage(VerifySuccessHtml(dest));
+        // SECURITY (cross-device verification): this endpoint ONLY marks the account
+        // as verified in the database. It deliberately does NOT mint a JWT, set an
+        // auth cookie, or redirect with a token — because the person clicking the
+        // email link may be on a DIFFERENT device (e.g. a phone opening the mail)
+        // than the browser that signed up. Auto-logging-in the link-clicker would
+        // hand a session to whichever device happened to open the email, which is a
+        // session-fixation / account-takeover risk. Instead we render a static page
+        // instructing the user to return to their original device and log in there.
+        return HtmlPage(VerifySuccessHtml());
     }
 
     /// <summary>Always emit explicit UTF-8 text/html so the browser renders the page
     /// instead of downloading it.</summary>
     private ContentResult HtmlPage(string html) => Content(html, "text/html", System.Text.Encoding.UTF8);
 
-    private static string VerifySuccessHtml(string dest)
+    /// <summary>Static verification-success page. Intentionally contains NO token,
+    /// NO redirect, and NO auto-login — it only tells the user to go back to the
+    /// device they signed up on and log in there (cross-device safety).</summary>
+    private static string VerifySuccessHtml()
     {
-        var href = System.Net.WebUtility.HtmlEncode(dest);
-        var js = System.Text.Json.JsonSerializer.Serialize(dest);   // safe JS string literal
-        return $$"""
+        return """
 <!doctype html><html lang="my"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="1;url={{href}}">
 <title>Vedin — အကောင့် အတည်ပြုပြီး</title></head>
 <body style="margin:0;background:#0b0a14;color:#e8e3d6;font-family:Segoe UI,Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center">
-  <div style="text-align:center;padding:40px">
+  <div style="text-align:center;padding:40px;max-width:520px">
     <div style="font-size:52px;color:#22c55e">&#10003;</div>
-    <h1 style="color:#eab308;margin:.4em 0">အကောင့် အတည်ပြုပြီးပါပြီ</h1>
-    <p style="color:#b9b09b">Vedin သို့ အလိုအလျောက် ဝင်ရောက်နေပါသည်…</p>
-    <a href="{{href}}" style="color:#a855f7;text-decoration:none">ဆက်လက်ရန် &rarr;</a>
+    <h1 style="color:#eab308;margin:.4em 0;font-size:22px">အတည်ပြုခြင်း အောင်မြင်ပါသည်။</h1>
+    <p style="color:#e8e3d6;line-height:1.7;font-size:16px">ကျေးဇူးပြု၍ သင့်မူလဖုန်း/ကွန်ပျူတာ (Device) သို့ပြန်သွားပြီး Login ဝင်ပါ။</p>
+    <p style="color:#b9b09b;line-height:1.6;font-size:13px;margin-top:14px">Verification successful. Please return to your original device to log in.</p>
   </div>
-  <script>setTimeout(function(){window.location.replace({{js}});},900);</script>
 </body></html>
 """;
     }
@@ -217,6 +217,26 @@ public class CustomerController : ControllerBase
 
         var token = GenerateJwt(cust);
         return Ok(ApiResponse<object>.Ok(new { token, cust.Id, cust.Email, cust.Username }, "Login successful."));
+    }
+
+    // ── Verification status probe (auto-advance the original device) ─────────────
+    /// <summary>Lightweight, unauthenticated poll used ONLY by the "check your email"
+    /// screen so the original device can auto-advance the moment the account is
+    /// confirmed on another device. Returns just a boolean and NEVER a token or any
+    /// personal data — the client must still perform a normal (password-checked)
+    /// login to obtain a session. It checks no password, so it is not a brute-force
+    /// vector and safely lives under the generous "general" limiter. It reveals no
+    /// more than the existing login response (which already distinguishes an
+    /// unconfirmed account), and treats a non-existent email exactly like an
+    /// unconfirmed one (verified:false) to avoid account enumeration.</summary>
+    [HttpGet("verification-status")]
+    [EnableRateLimiting("general")]
+    public async Task<IActionResult> VerificationStatus([FromQuery] string email)
+    {
+        var e = (email ?? string.Empty).ToLowerInvariant().Trim();
+        var verified = e.Length > 0
+            && await _db.Customers.AnyAsync(c => c.Email == e && c.EmailConfirmed);
+        return Ok(ApiResponse<object>.Ok(new { verified }, "OK"));
     }
 
     // ── Me (authenticated customer) ─────────────────────────────────────────────
